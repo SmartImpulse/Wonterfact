@@ -1,0 +1,49 @@
+[tool.poetry]
+name = "wonterfact"
+version = "2.1.0"
+description = "A powerful tool to design any tensor factorization model and estimate the corresponding parameters"
+authors = ["Smart-Impulse <contact@smart-impulse.com>", "Benoit Fuentes <bf@benoit-fuentes.fr>"]
+license = "GPL-3.0-or-later"
+readme = "README.md"
+repository = "https://github.com/smartimpulse/wonterfact"
+keywords = ["tensor", "factorization", "IA", "signal", "bayes"]
+classifiers = [
+    "Intended Audience :: Developers",
+    "Intended Audience :: Education",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU Lesser General Public License v3 or later (LGPLv3+)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Utilities",
+]
+
+[tool.poetry.dependencies]
+python = ">=3.8"
+numpy = ">=1.18.0"
+numba = ">=0.50.1"
+scipy = ">=1.5.0"
+opt_einsum = ">=3.2.1"
+custom_inherit = ">=2.3.0"
+python-baseconv = ">=1.2.2"
+graphviz = ">=0.14"
+methodtools = ">=0.4.2"
+
+[tool.poetry.dev-dependencies]
+pytest = "^5.2"
+pylint = "^2.5.3"
+black = {version = "^19.10b0", allow-prereleases = true}
+
+[build-system]
+requires = ["poetry>=0.12"]
+build-backend = "poetry.masonry.api"

@@ -1,0 +1,10 @@
+*~
+*.pyc
+*.egg-info
+build/*
+dist/*
+.coverage
+htmlcov
+jupyter/*
+.vscode/*
+wonterfact/untracked/*
