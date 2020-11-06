@@ -17,7 +17,7 @@
 # along with Wonterfact. If not, see <https://www.gnu.org/licenses/>.
 # ----------------------------------------------------------------------------
 
-"""Examples of wonterfact models using involving convolution"""
+"""Examples of wonterfact models involving convolution"""
 
 # Python standard library
 
