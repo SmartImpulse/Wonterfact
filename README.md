@@ -149,7 +149,7 @@ leaf_kf.new_child(multiplier)
 
 This is it, the NMF model is now instantiated. You can check if the tree of operations corresponds to the one you draw yourself (this is how we actually generated the figure in previous section):
 ```python
-my_tree.draw(show_node_names=True, filename='nmf_tree.pdf')
+my_tree.draw_tree(show_node_names=True, filename='nmf_tree.pdf')
 ```
 
 You can use name you gave to each node (provided that each name is unique) to access to a particular node:

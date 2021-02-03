@@ -622,6 +622,7 @@ class Root(_ChildNode):
         prior_nodes=False,
         view=True,
         show_node_names=False,
+        integer_observations=False,
     ):
         """
         Draw the tree model with Graphviz (you need to install it and make sure
@@ -653,5 +654,6 @@ class Root(_ChildNode):
             prior_nodes=prior_nodes,
             view=view,
             show_node_names=show_node_names,
+            integer_observations=integer_observations,
         )
 

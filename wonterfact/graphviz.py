@@ -40,7 +40,7 @@ def _get_node_shape(node):
     return "ellipse"
 
 
-def _get_node_prefix(node, legend_dict):
+def _get_node_prefix(node, legend_dict, **extra_param):
     if isinstance(node, operators.Multiplier):
         if node.conv_idx_ids:
             conv_idx = "".join(
@@ -50,23 +50,34 @@ def _get_node_prefix(node, legend_dict):
                     if idx in node.conv_idx_ids
                 ]
             )
-            return "&#8859;<sub><i>{}</i></sub>".format(conv_idx)
-        return "&otimes;"
+            # return "&#8859;<sub><i>{}</i></sub>".format(conv_idx)
+            return "(*)<sub><i>{}</i></sub>".format(conv_idx)
+        # return "&#215;"
+        # return "&Pi;"
+        return "(&times;)"
 
     if isinstance(node, operators.Multiplexer):
         if node.multiplexer_idx is not None:
-            return "&#8899;<sub><i>{}</i></sub>)".format(
+            return "(&#8741;<sub><i>{}</i></sub>)".format(
                 legend_dict[node.multiplexer_idx]["letter"]
             )
-        return "&#8899;"
+        return "(&#8741;)"
 
     if isinstance(node, operators.Adder):
-        return "&oplus;"
+        # return "&#43;"
+        # return "&Sigma;"
+        return "(+)"
 
     if isinstance(node, observers.PosObserver):
+        integer_observations = extra_param.get("integer_observations", False)
+        if integer_observations:
+            return "&#8469;"
         return "&#8477;<sup>+</sup>"
 
     if isinstance(node, observers.RealObserver):
+        integer_observations = extra_param.get("integer_observations", False)
+        if integer_observations:
+            return "&#8484;"
         return "&#8477;"
 
     if isinstance(node, operators.Integrator):
@@ -129,6 +140,7 @@ def _draw_tree(
     prior_nodes=False,
     view=True,
     show_node_names=False,
+    integer_observations=False,
 ):
     if tree.current_iter == 0:
         tree._first_iteration(check_model_validity=False)
@@ -180,53 +192,89 @@ def _draw_tree(
     graph.attr("edge", color="#0b51c3f2", arrowhead="none", fontname="Times-Roman")
     for node in tree.census():
         xlabel = _html(_small_font(node.name)) if show_node_names else None
-        node_shape = "ellipse"
-        peripheries = "1"
+
+        # special form for root
         if node is tree:
-            node_label = '<<font  COLOR="#0b51c3f2"><o>/ / / / / /</o></font>>'
-            node_shape = "none"
-            peripheries = "0"
-        elif not node.index_id and node.tensor_has_energy:
-            node_label = _make_node_label("", "&bull;", True)
-        else:
-            if node.tensor_has_energy:
-                index_label = "".join(
-                    [legend_dict[idx]["letter"] for idx in node.index_id[::-1]]
-                )
-                index_label = _italic(index_label)
-                underline = True
-            else:
-                index_label = _insert_given_symbol(
-                    node.index_id, node.norm_axis, node.tensor.ndim, legend_dict
-                )
-                underline = False
-            node_prefix = _get_node_prefix(node, legend_dict)
-            node_prefix = _small_font(node_prefix)
-            node_label = _make_node_label(node_prefix, index_label, underline)
-        if isinstance(node, observers._Observer):
-            with graph.subgraph(name="observers") as subg:
-                subg.attr(rank="same")
-                subg.node(
-                    str(id(node)),
-                    label=node_label,
-                    # shape=node_shape,
-                    shape="doublecircle",
-                    style="diagonals",
-                    xlabel=xlabel,
-                )
-        else:
-            try:
-                if node.update_period == 0:
-                    peripheries = "2"
-            except AttributeError:
-                pass
+            # node_label = """<<font  COLOR="#0b51c3f2"><o>/ / / / / /</o></font>>"""
+            # node_label = '<<font  COLOR="#0b51c3f2">___<br/>__<br/>_</font>>'
+            node_label = (
+                """<<table border="0" cellspacing="0" cellborder="1">"""
+                """<tr>"""
+                """<td width="9" height="9" fixedsize="true" sides="t"></td>"""
+                """<td width="9" height="9" fixedsize="true" sides="tb"></td>"""
+                """<td width="9" height="9" fixedsize="true" sides="tb"></td>"""
+                """<td width="9" height="9" fixedsize="true" sides="tb"></td>"""
+                """<td width="9" height="9" fixedsize="true" sides="t"></td>"""
+                """</tr>"""
+                """<tr>"""
+                """<td width="9" height="9" fixedsize="true" style="invis"></td>"""
+                """<td width="9" height="9" fixedsize="true" style="invis"></td>"""
+                """<td width="9" height="9" fixedsize="true" sides="b"></td>"""
+                """<td width="9" height="9" fixedsize="true" style="invis"></td>"""
+                """<td width="9" height="9" fixedsize="true" style="invis"></td>"""
+                """</tr>"""
+                """</table>>"""
+            )
+            # node_label = ""
             graph.node(
                 str(id(node)),
                 label=node_label,
-                shape=node_shape,
-                peripheries=peripheries,
+                shape="plain",
+                peripheries="0",
                 xlabel=xlabel,
+                # image="/home/fuentes/Projects/wonterfact/wonterfact/images/ground.svg",
+                # shape="epsf",
+                # shapefile="/home/fuentes/Projects/wonterfact/wonterfact/images/ground.ps",
             )
+        # all nodes except root
+        else:
+            # let us compute node_label
+            if not node.index_id and node.tensor_has_energy:
+                node_label = _make_node_label("", "&bull;", True)
+            else:
+                if node.tensor_has_energy:
+                    index_label = "".join(
+                        [legend_dict[idx]["letter"] for idx in node.index_id[::-1]]
+                    )
+                    index_label = _italic(index_label)
+                    underline = True
+                else:
+                    index_label = _insert_given_symbol(
+                        node.index_id, node.norm_axis, node.tensor.ndim, legend_dict
+                    )
+                    underline = False
+                node_prefix = _get_node_prefix(
+                    node, legend_dict, integer_observations=integer_observations
+                )
+                node_prefix = _small_font(node_prefix)
+                node_label = _make_node_label(node_prefix, index_label, underline)
+
+            # special shape for observers
+            if isinstance(node, observers._Observer):
+                with graph.subgraph(name="observers") as subg:
+                    subg.attr(rank="same")
+                    subg.node(
+                        str(id(node)),
+                        label=node_label,
+                        shape="ellipse",
+                        # shape="doublecircle",
+                        peripheries="2",
+                        style="diagonals",
+                        xlabel=xlabel,
+                    )
+            # leaves and operators
+            else:
+                if hasattr(node, "update_period") and node.update_period == 0:
+                    peripheries = "2"
+                else:
+                    peripheries = "1"
+                graph.node(
+                    str(id(node)),
+                    label=node_label,
+                    shape="ellipse",
+                    peripheries=peripheries,
+                    xlabel=xlabel,
+                )
     for node in tree.census():
         if node != tree:
             for child in node.list_of_children:
