@@ -153,7 +153,7 @@ def _draw_tree(
     filename = filename.with_suffix("")
     legend_dict = legend_dict or {}
     all_index_id = set.union(
-        *(set(node.index_id) for node in tree.census() if node != tree)
+        *(set(node.index_id) for node in tree.census() if hasattr(node, "index_id"))
     )
     used_letters = set()
     for elem in legend_dict.values():
@@ -226,6 +226,27 @@ def _draw_tree(
                 # shape="epsf",
                 # shapefile="/home/fuentes/Projects/wonterfact/wonterfact/images/ground.ps",
             )
+        elif isinstance(node, observers.BlindObs):
+            node_label = _make_node_label("", "?", True)
+            with graph.subgraph(name="observers") as subg:
+                subg.attr(rank="same")
+                subg.node(
+                    str(id(node)),
+                    label=node_label,
+                    shape="ellipse",
+                    # shape="doublecircle",
+                    peripheries="2",
+                    style="diagonals",
+                    xlabel=xlabel,
+                )
+            # graph.node(
+            #     str(id(node)),
+            #     label=node_label,
+            #     shape="ellipse",
+            #     style="diagonals",
+            #     peripheries="2",
+            #     xlabel=xlabel,
+            # )
         # all nodes except root
         else:
             # let us compute node_label
