@@ -31,7 +31,7 @@ import wonterfact as wtf
 import wonterfact.utils as wtfu
 
 
-def make_nmf_tree(fix_atoms=False):
+def make_nmf(fix_atoms=False):
     dim_k, dim_f, dim_t = 5, 20, 100
 
     atoms_kf = npr.dirichlet(np.ones(dim_f) * 0.9, size=dim_k)
@@ -169,4 +169,241 @@ def make_smooth_activation_nmf2():
     root = wtf.Root(name="smooth_activation_nmf2")
     obs_tf.new_child(root)
 
+    return root
+
+
+def make_sparse_nmf(prior_rate=0.001, obs=None, atoms=None):
+    """
+    NMF with minimization of \sum_{k != k'} P(k|t)P(k'|t)E(t) where P(k|t) are
+    the activations and E(t) total energy at time t
+    """
+    dim_f, dim_t, dim_k = 2, 100, 2
+
+    # gt_kf = npr.dirichlet(np.ones(dim_f), size=dim_k)
+    gt_kf = np.array([[4.0, 1.0], [4.0, 3.0]])
+    gt_kf /= gt_kf.sum(1, keepdims=True)
+    gt_tk = npr.gamma(shape=0.3, scale=100, size=(dim_t, dim_k))
+    gt_tf = np.dot(gt_tk, gt_kf)
+    gt_tf += npr.rand(dim_t, dim_f)
+    if obs is not None:
+        gt_tf = obs
+
+    leaf_t = wtf.LeafGamma(
+        name="time_energy",
+        index_id="t",
+        tensor=np.ones(dim_t),
+        prior_rate=prior_rate,
+        prior_shape=1,
+    )
+
+    leaf_tk = wtf.LeafDirichlet(
+        name="activations",
+        index_id="tk",
+        norm_axis=(1,),
+        tensor=np.ones((dim_t, dim_k)),
+        prior_shape=1,
+    )
+
+    mul_tk = wtf.Multiplier(index_id="tk")
+    mul_tk.new_parents(leaf_t, leaf_tk)
+
+    mul_tkl = wtf.Multiplier(name="activations_square", index_id="tkl")
+    leaf_tk.new_child(mul_tkl, index_id_for_child="tl")
+    mul_tk.new_child(mul_tkl)
+    if atoms is None:
+        atoms = np.ones((dim_k, dim_f))
+        update_period = 1
+    else:
+        update_period = 0
+    leaf_kf = wtf.LeafDirichlet(
+        name="atoms",
+        index_id="kf",
+        norm_axis=(1,),
+        tensor=atoms,
+        prior_shape=1 + 1e-4 * npr.rand(dim_k, dim_f),
+        update_period=update_period,
+    )
+    mul_tf = wtf.Multiplier(name="reconstruction", index_id="tf")
+    leaf_kf.new_child(mul_tf)
+
+    test_arr = npr.rand(2, dim_k, dim_k)
+    strides = (test_arr.strides[0],) + np.diag(test_arr[0]).strides
+    mul_tkl.new_child(
+        mul_tf,
+        shape_for_child=(dim_t, dim_k),
+        strides_for_child=strides,
+        index_id_for_child="tk",
+    )
+
+    obs_tf = wtf.PosObserver(name="observations", index_id="tf", tensor=gt_tf)
+    mul_tf.new_child(obs_tf)
+    root = wtf.Root(name="root", verbose_iter=50, cost_computation_iter=10)
+    obs_tf.new_child(root)
+    return root
+
+
+def make_sparse_nmf2(prior_rate=0.001, obs=None):
+    """
+    NMF with l1/l2 sparse constraint on atoms
+    """
+    dim_f, dim_t, dim_k = 2, 100, 2
+
+    # gt_kf = npr.dirichlet(np.ones(dim_f), size=dim_k)
+    gt_kf = np.array([[4.0, 1.0], [4.0, 3.0]])
+    gt_kf /= gt_kf.sum(1, keepdims=True)
+    gt_tk = npr.gamma(shape=0.3, scale=100, size=(dim_t, dim_k))
+    gt_tf = np.dot(gt_tk, gt_kf)
+    gt_tf += npr.rand(dim_t, dim_f)
+    if obs is not None:
+        gt_tf = obs
+
+    leaf_kf = wtf.LeafGammaNorm(
+        name="atoms",
+        index_id="kf",
+        tensor=np.ones((dim_k, dim_f)),
+        l2_norm_axis=(1,),
+        prior_rate=prior_rate,
+        prior_shape=1 + 1e-4 * npr.rand(dim_k, dim_k),
+    )
+
+    leaf_kt = wtf.LeafDirichlet(
+        name="activations",
+        index_id="kt",
+        norm_axis=(1,),
+        tensor=np.ones((dim_k, dim_t)),
+        prior_shape=1,
+    )
+
+    mul_tf = wtf.Multiplier(name="reconstruction", index_id="tf")
+    mul_tf.new_parents(leaf_kt, leaf_kf)
+
+    obs_tf = wtf.PosObserver(name="observations", index_id="tf", tensor=gt_tf)
+    mul_tf.new_child(obs_tf)
+    root = wtf.Root(name="root", verbose_iter=50, cost_computation_iter=10)
+    obs_tf.new_child(root)
+    return root
+
+
+def make_sparse_nmf3(prior_rate=0.001, obs=None):
+    """
+    NMF with approximation of l2 norm for atoms
+    """
+    dim_f, dim_t, dim_k, dim_a = 2, 100, 2, 2
+
+    gt_kf = npr.dirichlet(np.ones(dim_f), size=dim_k)
+    # gt_kf = np.array([[4.0, 1.0], [4.0, 3.0]])
+    gt_kf /= gt_kf.sum(1, keepdims=True)
+    gt_tk = npr.gamma(shape=0.3, scale=100, size=(dim_t, dim_k))
+    gt_tf = np.dot(gt_tk, gt_kf)
+    gt_tf += npr.rand(dim_t, dim_f)
+    if obs is not None:
+        gt_tf = obs
+
+    leaf_k = wtf.LeafGamma(
+        name="atoms_energy",
+        index_id="k",
+        tensor=np.ones((dim_k)),
+        prior_shape=1,
+        prior_rate=prior_rate,
+    )
+
+    leaf_kf = wtf.LeafDirichlet(
+        name="atoms_init",
+        index_id="kf",
+        norm_axis=(1,),
+        tensor=np.ones((dim_k, dim_f)),
+        prior_shape=1 + 1e-4 * npr.rand(dim_k, dim_f),
+    )
+    mul_kf = wtf.Multiplier(index_id="kf")
+    mul_kf.new_parents(leaf_kf, leaf_k)
+    mul_kfg = wtf.Multiplier(index_id="kfg")
+    mul_kf.new_child(mul_kfg)
+    leaf_kf.new_child(mul_kfg, index_id_for_child="kg")
+
+    leaf_c = wtf.LeafDirichlet(
+        index_id="c", norm_axis=(0,), tensor=np.array([0.5, 0.5]), update_period=0
+    )
+    mul_ckf = wtf.Multiplier(index_id="ckf")
+    leaf_c.new_child(mul_ckf)
+    test_arr = npr.rand(2, dim_f, dim_f)
+    strides = (test_arr.strides[0],) + np.diag(test_arr[0]).strides
+    mul_kfg.new_child(
+        mul_ckf,
+        index_id_for_child="kf",
+        shape_for_child=(dim_k, dim_f),
+        strides_for_child=strides,
+    )
+
+    leaf_g = wtf.LeafDirichlet(
+        index_id="g", norm_axis=(), tensor=np.ones(dim_f - 1), update_period=0
+    )
+    mul_kf2 = wtf.Multiplier(index_id="kf")
+    leaf_g.new_child(mul_kf2)
+    mask = np.logical_not(np.eye(dim_f, dtype=bool))
+    mul_kfg.new_child(
+        mul_kf2,
+        slice_for_child=[slice(None), mask],
+        shape_for_child=(dim_k, dim_f, dim_f - 1),
+    )
+
+    add_kf = wtf.Adder(name="atoms", index_id="kf")
+    mul_kf2.new_child(add_kf)
+    mul_ckf.new_child(add_kf, index_id_for_child="kf", slice_for_child=(0, Ellipsis))
+
+    # leaf_ka = wtf.LeafDirichlet(
+    #     name="angle",
+    #     index_id="ka",
+    #     norm_axis=(1,),
+    #     tensor=np.ones((dim_k, dim_a)),
+    #     l2_norm_axis=(1,),
+    #     prior_shape=1 + 1e-4 * npr.rand(dim_k, dim_a),
+    # )
+
+    # mul_ka = wtf.Multiplier(index_id="ka")
+    # mul_ka.new_parents(leaf_k, leaf_ka)
+
+    # mul_kab = wtf.Multiplier(index_id="kab")
+    # mul_ka.new_child(mul_kab)
+    # leaf_ka.new_child(mul_kab, index_id_for_child="kb")
+
+    # leaf_abm = wtf.LeafDirichlet(
+    #     index_id="abm",
+    #     norm_axis=(2,),
+    #     tensor=np.array([[[1, 0, 0], [0, 1, 0]], [[0, 1, 0], [0, 0, 1]]]),
+    #     update_period=0,
+    # )
+
+    # mul_km = wtf.Multiplier(index_id="km")
+    # mul_km.new_parents(leaf_abm, mul_kab)
+
+    # leaf_mnf = wtf.LeafDirichlet(
+    #     name="basis",
+    #     index_id="mnf",
+    #     norm_axis=(1, 2),
+    #     tensor=np.array(
+    #         [[[0, 0.5], [0.5, 0]], [[0.5, 0.5], [0, 0]], [[0.5, 0], [0, 0.5]]]
+    #     ),
+    #     update_period=0,
+    # )
+
+    # mul_nkf = wtf.Multiplier(index_id="nkf", name="atoms")
+    # mul_nkf.new_parents(leaf_mnf, mul_km)
+
+    leaf_kt = wtf.LeafDirichlet(
+        name="activations",
+        index_id="kt",
+        norm_axis=(1,),
+        tensor=np.ones((dim_k, dim_t)),
+        prior_shape=1,
+    )
+
+    mul_tf = wtf.Multiplier(name="reconstruction", index_id="tf")
+    leaf_kt.new_child(mul_tf)
+    # mul_nkf.new_child(mul_tf, index_id_for_child="kf", slice_for_child=[0, Ellipsis])
+    add_kf.new_child(mul_tf)
+
+    obs_tf = wtf.PosObserver(name="observations", index_id="tf", tensor=gt_tf)
+    mul_tf.new_child(obs_tf)
+    root = wtf.Root(name="root", verbose_iter=50, cost_computation_iter=10)
+    obs_tf.new_child(root)
     return root

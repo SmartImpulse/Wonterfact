@@ -31,7 +31,7 @@ import wonterfact as wtf
 import wonterfact.utils as wtfu
 
 
-def make_snmf_tree(fix_atoms=False):
+def make_snmf(fix_atoms=False):
     dim_k, dim_f, dim_t = 5, 20, 100
 
     atoms_kf = npr.choice([-1, 1], size=[dim_k, dim_f]) * npr.dirichlet(
@@ -67,9 +67,11 @@ def make_snmf_tree(fix_atoms=False):
     return root
 
 
-def make_convex_clustering():
+def make_cluster_snmf():
     """
     Convex S-NMF for automatic clustering, inspired by Ding2010_IEEE
+    Data to cluster are considered scale invariant, meaning we cluster directions
+    rather than points in some n-dimensional space.
     """
     dim_d, dim_f = 400, 10
     tensor_df = np.zeros((dim_d, dim_f))
@@ -138,4 +140,96 @@ def make_convex_clustering():
         # update_type='regular'
     )
     obs_df.new_child(root)
+    return root
+
+
+def make_cluster_snmf2(nb_cluster=4, prior_rate=0.001):
+    """
+    Convex S-NMF for automatic clustering, inspired by Ding2010_IEEE
+    Data to cluster are points in some n-dimensional space.
+    """
+    dim_d, dim_f = nb_cluster * 100, 2
+    tensor_df = np.zeros((dim_d, dim_f))
+    for ii in range(nb_cluster):
+        mean = npr.uniform(low=-10, high=10, size=dim_f)
+        cov = npr.uniform(low=0.0, high=1.0, size=(dim_f, dim_f))
+        cov = np.dot(cov, cov.T) + np.diag(npr.uniform(low=0.0, high=0.5, size=dim_f))
+        tensor_df[
+            ii * dim_d // nb_cluster : (ii + 1) * dim_d // nb_cluster, :
+        ] = npr.multivariate_normal(mean, cov, size=dim_d // nb_cluster)
+
+    tensor_df = tensor_df[npr.permutation(dim_d)].copy()
+
+    dim_q = nb_cluster
+
+    tensor_dfs = wtfu.real_to_2D_nonnegative(tensor_df)
+    tensor_dfs /= tensor_dfs.sum()
+    leaf_dfs = wtf.LeafDirichlet(
+        name="samples",
+        index_id="dfs",
+        norm_axis=(0, 1, 2),
+        tensor=tensor_dfs,
+        update_period=0,
+    )
+
+    tensor_dq = np.ones((dim_d, dim_q))
+    leaf_dq = wtf.LeafDirichlet(
+        name="class_by_sample",
+        index_id="dq",
+        norm_axis=(1,),
+        tensor=tensor_dq,
+        prior_shape=1 + 1e-5 * npr.rand(dim_d, dim_q),
+    )
+    mul_pfs = wtf.Multiplier(name="barycenters", index_id="pfs")
+    leaf_dq.new_child(mul_pfs, index_id_for_child="dp")
+    leaf_dfs.new_child(mul_pfs)
+
+    tensor_pqm = np.zeros((dim_q, dim_q, 2))
+    tensor_pqm[:, :, 0] = np.eye(dim_q)
+    tensor_pqm[:, :, 1] = 1 - np.eye(dim_q)
+    leaf_pqm = wtf.LeafDirichlet(
+        name="energy dispatcher",
+        index_id="pqm",
+        tensor=tensor_pqm,
+        norm_axis=(2,),
+        update_period=0,
+    )
+
+    mul_qfsm = wtf.Multiplier(index_id="qfsm")
+    mul_qfsm.new_parents(mul_pfs, leaf_pqm)
+
+    leaf_d = wtf.LeafGamma(
+        name="sample_energy",
+        index_id="d",
+        norm_axis=(0,),
+        tensor=np.ones(dim_d),
+        prior_shape=1,
+        prior_rate=prior_rate,
+    )
+
+    mul_dq = wtf.Multiplier(name="sample_class_energy", index_id="dq")
+    mul_dq.new_parents(leaf_d, leaf_dq)
+
+    mul_dfsm = wtf.Multiplier(name="reconstruction", index_id="dfsm")
+    mul_dfsm.new_parents(mul_qfsm, mul_dq)
+
+    # observations
+    obs_df = wtf.RealObserver(name="observations", index_id="df", tensor=tensor_df,)
+    mul_dfsm.new_child(obs_df, index_id_for_child="dfs", slice_for_child=(Ellipsis, 0))
+    root = wtf.Root(
+        name="root",
+        verbose_iter=50,
+        cost_computation_iter=10,
+        # update_type='regular'
+    )
+    obs_df.new_child(root)
+
+    # # null obs
+    # obs_df2 = wtf.PosObserver(
+    #     name="null_observations", index_id="dfs", tensor=np.zeros((dim_d, dim_f, 2))
+    # )
+    # mul_dfsm.new_child(obs_df2, index_id_for_child="dfs", slice_for_child=(Ellipsis, 1))
+
+    # obs_df2.new_child(root)
+
     return root

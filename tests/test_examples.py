@@ -27,7 +27,7 @@ import pytest
 import numpy as np
 
 # wonterfact and relative imports
-from wonterfact import glob
+from wonterfact import glob, LeafGammaNorm
 from wonterfact.examples import snmf
 from wonterfact.examples import nmf
 from wonterfact.examples import conv_nmf
@@ -37,12 +37,16 @@ from . import utils as t_utils
 
 
 list_of_tree_makers_tuple = [
-    (nmf.make_nmf_tree, (), {}),
+    (nmf.make_nmf, (), {}),
     (nmf.make_smooth_activation_nmf, (), {}),
     (nmf.make_smooth_activation_nmf2, (), {}),
-    (snmf.make_snmf_tree, (), {"fix_atoms": True}),
-    (snmf.make_snmf_tree, (), {"fix_atoms": False}),
-    (snmf.make_convex_clustering, (), {}),
+    (nmf.make_sparse_nmf, (), {}),
+    (nmf.make_sparse_nmf2, (), {}),
+    (nmf.make_sparse_nmf3, (), {}),
+    (snmf.make_snmf, (), {"fix_atoms": True}),
+    (snmf.make_snmf, (), {"fix_atoms": False}),
+    (snmf.make_cluster_snmf, (), {}),
+    (snmf.make_cluster_snmf2, (), {}),
     (conv_nmf.make_deconv_tree, (), {}),
 ]
 
@@ -75,9 +79,12 @@ def test_example(
         update_type=update_type,
         limit_skellam=limit_skellam,
     )
-    if (inference_mode, update_type) == ("VBEM", "parabolic"):
-        with pytest.raises(NotImplementedError):
-            tree.estimate_param(n_iter=100)
+    if inference_mode == "VBEM":
+        if update_type == "parabolic" or any(
+            type(node) == LeafGammaNorm for node in tree.census()
+        ):
+            with pytest.raises(NotImplementedError):
+                tree.estimate_param(n_iter=100)
     else:
         tree.estimate_param(n_iter=100)
         assert t_utils._assert_cost_decrease(tree)

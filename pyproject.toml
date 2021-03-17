@@ -43,6 +43,7 @@ methodtools = ">=0.4.2"
 pytest = "^5.2"
 pylint = "^2.5.3"
 black = {version = "^19.10b0", allow-prereleases = true}
+rope = "^0.18.0"
 
 [tool.pytest.ini_options]
 markers = [
