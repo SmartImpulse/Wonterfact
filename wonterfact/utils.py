@@ -924,35 +924,61 @@ def forced_iter(input):
     return it
 
 
+def _is_bool_masking(elem):
+    """
+    Returns boolean masking as numpy array if elem is a boolean mask. Returns None
+    otherwise
+    """
+    try:
+        iter(elem)
+        elem_as_np = np.array(elem)
+        if elem_as_np.dtype == bool:
+            return elem_as_np
+    except TypeError:
+        pass
+    return None
+
+
 def explicit_slice(input_slice, ndim):
     """
     Returns explicit slicing as tuple of a ndim-ndarray given an input slicing.
+    input slicing must be either a tuple or a single element (slice for the first
+    dimension).
     If `ndim` equals 0, then input_slice is returned as is.
 
     Examples
     --------
     >>> explicit_slice(Ellipsis, 2)
-    (slice(None, None, None), slice(None, None))
+    (slice(None, None, None), slice(None, None, None))
     >>> explicit_slice([Ellipsis, 1], 2)
     (slice(None, None, None), 1)
     >>> explicit_slice([slice(1), 1], 3)
-    (slice(None, 1, None), 2, slice(None, None, None))
+    (slice(None, 1, None), 1, slice(None, None, None))
     >>> explicit_slice(Ellipsis, 0)
     Ellipsis
     """
+
     if ndim == 0:
         return input_slice
+    if type(input_slice) != tuple:
+        input_slice = (input_slice,)
+
+    # check if there is a boolean masking, in which case ndim might be lower
+    for elem in input_slice:
+        elem_as_np = _is_bool_masking(elem)
+        if elem_as_np is not None:
+            ndim -= elem_as_np.ndim - 1
+
     explicit_slice = [slice(None),] * ndim
-    input_as_tuple = tuple(forced_iter(input_slice))
     found_ellipsis = False
-    for num_dim, sl in enumerate(input_as_tuple):
-        if sl == Ellipsis:
+    for num_dim, sl in enumerate(input_slice):
+        if sl is Ellipsis:
             found_ellipsis = True
             break
         explicit_slice[num_dim] = sl
     if found_ellipsis:
-        for num_dim, sl in enumerate(input_as_tuple[::-1]):
-            if sl == Ellipsis:
+        for num_dim, sl in enumerate(input_slice[::-1]):
+            if sl is Ellipsis:
                 break
             explicit_slice[-1 - num_dim] = sl
 

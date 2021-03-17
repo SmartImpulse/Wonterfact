@@ -51,7 +51,7 @@ def _get_node_prefix(node, legend_dict, **extra_param):
                 ]
             )
             # return "&#8859;<sub><i>{}</i></sub>".format(conv_idx)
-            return "(*)<sub><i>{}</i></sub>".format(conv_idx)
+            return "(&lowast;)<sub><i>{}</i></sub>".format(conv_idx)
         # return "&#215;"
         # return "&Pi;"
         return "(&times;)"
@@ -86,7 +86,7 @@ def _get_node_prefix(node, legend_dict, **extra_param):
         )
 
     if isinstance(node, operators.Proxy):
-        return "&#8860;"
+        return "(=)"
 
     return ""
 
@@ -97,7 +97,20 @@ def _get_edge_label(node, child, legend_dict):
     label = ""
     slice_for_child = node.slicing_for_children_dict[child]
     if slice_for_child != Ellipsis:
-        explicit_slice = utils.explicit_slice(slice_for_child, node.tensor.ndim)
+        explicit_slice_raw = utils.explicit_slice(slice_for_child, node.tensor.ndim)
+        explicit_slice = []
+        masked_idx = []
+        num_idx = 0
+        for elem in explicit_slice_raw:
+            elem_as_np = utils._is_bool_masking(elem)
+            if elem_as_np is not None:
+                masked_idx += node.index_id[num_idx : num_idx + elem_as_np.ndim]
+                num_idx += elem_as_np.ndim
+                explicit_slice += [slice(None),] * elem_as_np.ndim
+            else:
+                explicit_slice.append(elem)
+                num_idx += 1
+
         for idx, sl, dim_axis in zip(
             node.index_id[::-1], explicit_slice[::-1], node.tensor.shape[::-1]
         ):
@@ -114,6 +127,11 @@ def _get_edge_label(node, child, legend_dict):
                     label += "<i>{}</i>=["
                     label += ",".join(str(ax) for ax in sl)
                     label += "]"
+        if masked_idx:
+            masked_letters = "".join(
+                [legend_dict[idx]["letter"] for idx in masked_idx[::-1]]
+            )
+            label += "mask: " + masked_letters
     if node.strides_for_children_dict[child]:
         label += "strides: {}".format(node.strides_for_children_dict[child])
     index_id_for_child = node.get_index_id_for_children(child)
@@ -222,6 +240,7 @@ def _draw_tree(
                 shape="plain",
                 peripheries="0",
                 xlabel=xlabel,
+                forcelabels="true",
                 # image="/home/fuentes/Projects/wonterfact/wonterfact/images/ground.svg",
                 # shape="epsf",
                 # shapefile="/home/fuentes/Projects/wonterfact/wonterfact/images/ground.ps",
@@ -238,6 +257,7 @@ def _draw_tree(
                     peripheries="2",
                     style="diagonals",
                     xlabel=xlabel,
+                    forcelabels="true",
                 )
             # graph.node(
             #     str(id(node)),
@@ -282,6 +302,7 @@ def _draw_tree(
                         peripheries="2",
                         style="diagonals",
                         xlabel=xlabel,
+                        forcelabels="true",
                     )
             # leaves and operators
             else:
@@ -295,6 +316,7 @@ def _draw_tree(
                     shape="ellipse",
                     peripheries=peripheries,
                     xlabel=xlabel,
+                    forcelabels="true",
                 )
     for node in tree.census():
         if node != tree:
@@ -330,20 +352,22 @@ def _draw_tree(
 
     if prior_nodes:
         for leaf in tree.nodes_by_level[0]:
-            label = "&alpha;"
-            try:
-                ndim_alpha = leaf.prior_shape.ndim
-            except AttributeError:
-                ndim_alpha = 0
-            idx_alpha = "".join(
-                [
-                    legend_dict[idx]["letter"]
-                    for idx in leaf.index_id[-1 : -1 - ndim_alpha : -1]
-                ]
-            )
-            if idx_alpha:
-                label += "_{{{}}}".format(_italic(idx_alpha))
-            try:
+            label = ""
+            if hasattr(leaf, "prior_shape"):
+                label += "&alpha;"
+                try:
+                    ndim_alpha = leaf.prior_shape.ndim
+                except AttributeError:
+                    ndim_alpha = 0
+                idx_alpha = "".join(
+                    [
+                        legend_dict[idx]["letter"]
+                        for idx in leaf.index_id[-1 : -1 - ndim_alpha : -1]
+                    ]
+                )
+                if idx_alpha:
+                    label += "_{{{}}}".format(_italic(idx_alpha))
+            if hasattr(leaf, "prior_rate"):
                 try:
                     ndim_beta = leaf.prior_rate.ndim
                 except AttributeError:
@@ -357,8 +381,6 @@ def _draw_tree(
                 label += ",&beta;"
                 if idx_beta:
                     label += "_{{{}}}".format(_italic(idx_beta))
-            except AttributeError:
-                pass
             id_node = "p" + str(id(leaf))
             label = _small_font((_italic(label)), fontsize=11)
             graph.node(id_node, shape="box", style="diagonals", label=_html(label))

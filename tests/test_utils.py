@@ -612,6 +612,18 @@ def test_explicit_slice():
     assert utils.explicit_slice(Ellipsis, 0) == Ellipsis
     assert utils.explicit_slice(slice(None), 1) == (slice(None),)
 
+    mask = np.array([[True, False], [False, True]])
+    list_of_input = [
+        mask,
+        (mask, slice(None)),
+        (mask, Ellipsis),
+    ]
+    for sl in list_of_input:
+        explicit_sl = utils.explicit_slice(sl, ndim)
+        assert len(explicit_sl) == ndim - 1
+        assert np.alltrue(explicit_sl[0] == mask)
+        assert explicit_sl[1:] == (slice(None),) * (ndim - 2)
+
 
 def test_real_to_2D_nonnegative():
     arr = np.array([[1, -1, 2], [-3, 3.2, 0]])

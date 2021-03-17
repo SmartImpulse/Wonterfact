@@ -419,11 +419,11 @@ class _DynNodeData(_NodeData):
 
     def get_tensor_for_children(self, child, force_numpy=False, raw_tensor=None):
         """
-        Returns inner tensor or a modified view of the inner tensor. The result
-        might differ depending on who is asking: in some cases, the node might
-        lie to its children (cf wonterfact.create_filiation docstring).
-        Children of the node should always use this method instead of the
-        ``get_tensor`` method.
+        Returns inner tensor or a modified view or modified copy of the inner
+        tensor. The result might differ depending on who is asking: in some
+        cases, the node might lie to its children (cf
+        wonterfact.create_filiation docstring). Children of the node should
+        always use this method instead of the ``get_tensor`` method.
 
         Parameters
         ----------
