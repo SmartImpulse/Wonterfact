@@ -99,6 +99,7 @@ def test_check_model_validity_dynnodedata():
         match=".*Each coefficient of inner tensor should be seen by at least",
     ):
         parent._check_model_validity()
+
     parent = wtfc._DynNodeData(index_id="td", tensor=npr.rand(2, 2))
     parent.tensor_has_energy = False
     parent.norm_axis = (1,)
@@ -110,6 +111,7 @@ def test_check_model_validity_dynnodedata():
         ValueError, match=".*its children should not see an incomplete piece of"
     ):
         parent._check_model_validity()
+
     parent = wtfc._DynNodeData(index_id="td", tensor=npr.rand(2, 2))
     parent.tensor_has_energy = False
     parent.norm_axis = (1,)
@@ -119,6 +121,18 @@ def test_check_model_validity_dynnodedata():
     parent.new_child(child2, slice_for_child=(..., [1,]))
     with pytest.raises(
         ValueError, match=".*its children should not see an incomplete piece of"
+    ):
+        parent._check_model_validity()
+
+    parent = wtfc._DynNodeData(index_id="d", tensor=npr.rand(3))
+    parent.tensor_has_energy = True
+    child1 = wtfo._Operator(index_id="d", tensor=npr.rand(2))
+    parent.new_child(child1, slice_for_child=slice(0, 2))
+    child2 = wtfo._Operator(index_id="d", tensor=npr.rand(1))
+    parent.new_child(child2, slice_for_child=slice(0, 1))
+    with pytest.raises(
+        ValueError,
+        match=".*Each coefficient of inner tensor should be seen by at most",
     ):
         parent._check_model_validity()
 

@@ -718,12 +718,29 @@ class _DynNodeData(_NodeData):
             )
         return test_tensor.all()
 
+    @cached_property
+    def are_all_tensor_coefs_linked_to_at_most_one_child(self):
+        test_tensor = glob.xp.zeros_like(self.tensor)
+        for child in self.list_of_children:
+            self._compute_tensor_update_aux(
+                child, tensor_to_fill=test_tensor, value_to_force=1.0, cumsum=True
+            )
+        return (test_tensor < 2.0).all()
+
     def _check_model_validity(self):
         super()._check_model_validity()
 
-        # As long as tensor has energy, everything is possible because
-        # tensor_update can have default value = 1 as we had masked observations
+        # If tensor has energy, each of its value can be see at most by one child
+        # otherwise it would mean that energy is duplicated. On the other hand,
+        # if a value is seen by no child, it is not a problem because tensor_update
+        # can have default value = 1 as if we had masked observations
         if self.tensor_has_energy:
+            if not self.are_all_tensor_coefs_linked_to_at_most_one_child:
+                raise ValueError(
+                    "Model invalid at {} level. Each coefficient of inner tensor "
+                    "should be seen by at most one child, unless inner tensor has "
+                    "no energy".format(self)
+                )
             return
 
         #  Otherwise, all values of inner tensor should be seen by at least one child.

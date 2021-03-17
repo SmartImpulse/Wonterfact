@@ -214,7 +214,7 @@ class LeafGamma(_Leaf):
             Whether the rate parameter of the prior Gamma distribution should be
             learned or not (only in the 'VBEM' mode, not yet available for now).
         """
-        prior_rate = prior_rate or 0.0
+        prior_rate = 0.0 if prior_rate is None else prior_rate
         self.prior_rate = glob.xp.array(prior_rate, dtype=glob.float)
         if self.prior_rate.size > 1 and not (self.prior_rate > 0).all():
             raise ValueError("prior_rate, if not None, must be > 0")
