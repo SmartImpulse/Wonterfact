@@ -90,8 +90,8 @@ class Proxy(_Operator):
         self.tensor_update = glob.xp.zeros(self.tensor.shape, dtype=glob.float)
 
     @lru_cache(maxsize=1)
-    def _get_raw_mean_tensor_for_VBEM(self, current_iter):
-        raw_tensor = self.first_parent._get_mean_tensor_for_VBEM(self, current_iter)
+    def _get_raw_mean_tensor_for_VBEM(self):
+        raw_tensor = self.first_parent._get_mean_tensor_for_VBEM(self)
         return raw_tensor
 
     def _check_filiation_ok(self, child=None, parent=None, **kwargs):
@@ -169,12 +169,12 @@ class Multiplier(_Operator):
         )
 
     @lru_cache(maxsize=1)
-    def _get_raw_mean_tensor_for_VBEM(self, current_iter):
+    def _get_raw_mean_tensor_for_VBEM(self):
         input_einconv = [
             elem
             for node in self.list_of_parents
             for elem in [
-                node._get_mean_tensor_for_VBEM(self, current_iter),
+                node._get_mean_tensor_for_VBEM(self),
                 node.get_index_id_for_children(self),
             ]
         ] + [self.index_id]
@@ -507,10 +507,10 @@ class Multiplexer(_Operator):
             )
 
     @lru_cache(maxsize=1)
-    def _get_raw_mean_tensor_for_VBEM(self, current_iter):
+    def _get_raw_mean_tensor_for_VBEM(self):
         raw_tensor = glob.xp.zeros_like(self.tensor)
         for parent in self.list_of_parents:
-            parent_tensor = parent._get_mean_tensor_for_VBEM(self, current_iter)
+            parent_tensor = parent._get_mean_tensor_for_VBEM(self)
             self_shape = raw_tensor[self.parent_slicing_dict[parent]].shape
             raw_tensor[self.parent_slicing_dict[parent]] = parent_tensor.reshape(
                 self_shape
@@ -556,10 +556,9 @@ class Integrator(_Operator):
         )
 
     @lru_cache(maxsize=1)
-    def _get_raw_mean_tensor_for_VBEM(self, current_iter):
+    def _get_raw_mean_tensor_for_VBEM(self):
         parent_tensor = (
-            self.first_parent._get_mean_tensor_for_VBEM(self, current_iter)
-            * self._normalization_coef
+            self.first_parent._get_mean_tensor_for_VBEM(self) * self._normalization_coef
         )
         direction = -1 if self.backward_integration else 1
         raw_tensor = glob.xp.zeros_like(self.tensor)
@@ -635,13 +634,13 @@ class Adder(_Operator):
             tensor += parent.get_tensor_for_children(self)
 
     @lru_cache(maxsize=1)
-    def _get_raw_mean_tensor_for_VBEM(self, current_iter):
+    def _get_raw_mean_tensor_for_VBEM(self):
         raw_tensor = glob.xp.zeros_like(self.tensor)
         for parent in self.list_of_parents:
             tensor = self.apply_slice_and_shape(raw_tensor, parent)
             if not glob.xp.may_share_memory(tensor, raw_tensor):
                 raise ValueError("something is wrong in the reslicing and reshaping")
-            tensor += parent._get_mean_tensor_for_VBEM(self, current_iter)
+            tensor += parent._get_mean_tensor_for_VBEM(self)
         return raw_tensor
 
     def _give_update(self, parent, out=None):

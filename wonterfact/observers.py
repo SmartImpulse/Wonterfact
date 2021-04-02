@@ -180,9 +180,7 @@ class PosObserver(_Observer):
             if self._inference_mode == "EM":
                 lh -= parent_tensor
             elif self._inference_mode == "VBEM":
-                lh -= parent._get_mean_tensor_for_VBEM(
-                    self, self.first_child.current_iter
-                )
+                lh -= parent._get_mean_tensor_for_VBEM(self)
             lh += utils.xlogy(my_tensor, parent_tensor)
             lh -= glob.sps.gammaln(my_tensor + 1)
         if self.mask_data is not None:
@@ -239,9 +237,7 @@ class RealObserver(_Observer):
             if self._inference_mode == "EM":
                 lh -= parent_tensor.sum(-1)
             elif self._inference_mode == "VBEM":
-                lh -= parent._get_mean_tensor_for_VBEM(
-                    self, self.first_child.current_iter
-                ).sum(-1)
+                lh -= parent._get_mean_tensor_for_VBEM(self).sum(-1)
             abs_tensor = mult_fact * self.abs_tensor
             inside_log = (
                 parent_tensor[..., 0] * self.is_tensor_pos

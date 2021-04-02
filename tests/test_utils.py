@@ -118,6 +118,24 @@ def test_has_a_shared_sublist():
     )
 
 
+def test_get_transpose_and_slice():
+    sub1, sub2, sub_out = "ij", "jkl", "kilj"
+    transpose1, slice1 = utils.get_transpose_and_slice(sub1, sub_out)
+    transpose2, slice2 = utils.get_transpose_and_slice(sub2, sub_out)
+    assert transpose1 == (0, 1)
+    assert transpose2 == (1, 2, 0)
+    assert slice1 == (None, slice(None), None, slice(None))
+    assert slice2 == (slice(None), None, slice(None), slice(None))
+
+
+def test_supscript_summation(xp):
+    sub1, sub2, sub_out = "ij", "jkl", "kilj"
+    op1 = xp.arange(3 * 5).reshape((3, 5))
+    op2 = xp.arange(5 * 2 * 4).reshape((5, 2, 4))
+    res = utils.supscript_summation(op1, sub1, op2, sub2, sub_out)
+    assert xp.allclose(res, op1[:, None] + op2.transpose((1, 2, 0))[:, None])
+
+
 def test_parse_einsum_args():
     args1 = ("fd,dt,d->ft", 1, 2, 3)
     args2 = (1, "fd", 2, "dt", 3, "d", "ft")

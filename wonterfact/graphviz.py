@@ -24,7 +24,7 @@ import re
 from pathlib import Path
 
 # Relative imports
-from . import core_nodes, root, observers, operators, utils
+from . import core_nodes, root, observers, operators, utils, buds
 
 # Third-party imports
 import numpy as np
@@ -270,15 +270,17 @@ def _draw_tree(
         # all nodes except root
         else:
             # let us compute node_label
-            if not node.index_id and node.tensor_has_energy:
-                node_label = _make_node_label("", "&bull;", True)
+            if not node.index_id:
+                node_label = _make_node_label(
+                    "", "&middot;", underline=node.tensor_has_energy
+                )
             else:
-                if node.tensor_has_energy:
+                if node.tensor_has_energy or node.level == 0:
                     index_label = "".join(
                         [legend_dict[idx]["letter"] for idx in node.index_id[::-1]]
                     )
                     index_label = _italic(index_label)
-                    underline = True
+                    underline = node.tensor_has_energy
                 else:
                     index_label = _insert_given_symbol(
                         node.index_id, node.norm_axis, node.tensor.ndim, legend_dict
@@ -304,6 +306,22 @@ def _draw_tree(
                         xlabel=xlabel,
                         forcelabels="true",
                     )
+            # special shape for hyperparameter buds
+            elif isinstance(node, buds._Bud):
+                if hasattr(node, "update_period") and node.update_period == 0:
+                    peripheries = "2"
+                else:
+                    peripheries = "1"
+                if prior_nodes:
+                    graph.node(
+                        str(id(node)),
+                        label=node_label,
+                        shape="box",
+                        peripheries=peripheries,
+                        # style="diagonals",
+                        xlabel=xlabel,
+                        forcelabels="true",
+                    )
             # leaves and operators
             else:
                 if hasattr(node, "update_period") and node.update_period == 0:
@@ -320,11 +338,12 @@ def _draw_tree(
                 )
     for node in tree.census():
         if node != tree:
-            for child in node.list_of_children:
-                edge_label = _get_edge_label(node, child, legend_dict)
-                if edge_label:
-                    edge_label = _html(_small_font(edge_label))
-                graph.edge(str(id(node)), str(id(child)), taillabel=edge_label)
+            if node.level != 0 or prior_nodes:
+                for child in node.list_of_children:
+                    edge_label = _get_edge_label(node, child, legend_dict)
+                    if edge_label:
+                        edge_label = _html(_small_font(edge_label))
+                    graph.edge(str(id(node)), str(id(child)), taillabel=edge_label)
 
     if any("description" in idx_dict for idx_dict in legend_dict.values()):
         label_legend = (
@@ -349,43 +368,6 @@ def _draw_tree(
                 # fontsize='8',
                 style="dotted",
             )
-
-    if prior_nodes:
-        for leaf in tree.nodes_by_level[0]:
-            label = ""
-            if hasattr(leaf, "prior_shape"):
-                label += "&alpha;"
-                try:
-                    ndim_alpha = leaf.prior_shape.ndim
-                except AttributeError:
-                    ndim_alpha = 0
-                idx_alpha = "".join(
-                    [
-                        legend_dict[idx]["letter"]
-                        for idx in leaf.index_id[-1 : -1 - ndim_alpha : -1]
-                    ]
-                )
-                if idx_alpha:
-                    label += "_{{{}}}".format(_italic(idx_alpha))
-            if hasattr(leaf, "prior_rate"):
-                try:
-                    ndim_beta = leaf.prior_rate.ndim
-                except AttributeError:
-                    ndim_beta = 0
-                idx_beta = "".join(
-                    [
-                        legend_dict[idx]["letter"]
-                        for idx in leaf.index_id[-1 : -1 - ndim_beta : -1]
-                    ]
-                )
-                label += ",&beta;"
-                if idx_beta:
-                    label += "_{{{}}}".format(_italic(idx_beta))
-            id_node = "p" + str(id(leaf))
-            label = _small_font((_italic(label)), fontsize=11)
-            graph.node(id_node, shape="box", style="diagonals", label=_html(label))
-            graph.attr("edge", len="0")
-            graph.edge(id_node, str(id(leaf)))
 
     if view:
         graph.view(cleanup=True)

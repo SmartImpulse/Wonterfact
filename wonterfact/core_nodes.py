@@ -21,7 +21,7 @@
 
 # Python System imports
 from functools import cached_property
-from methodtools import lru_cache
+from methodtools import lru_cache  # allows cache decorator per instance
 
 # Relative imports
 from . import utils
@@ -56,17 +56,6 @@ class _Node(
             self.name = "n_" + base62.encode(id(self))
         self.already_been_counted = False
 
-    @property
-    def level(self):  # Needs to be overridden in ChildNode class.
-        """
-        Returns 0 , which is the default level by default of a node.
-
-        Returns
-        ------
-        int
-        """
-        return 0
-
     def census(self, nodebook=None):  # Needs to be overridden in ChildNode class.
         """
         Returns a single element set with itself in it.
@@ -80,7 +69,8 @@ class _Node(
         nodebook.add(self)
         return nodebook
 
-    def should_update(self, *args, **kwargs):  # Needs to be overridden in DynNodeData
+    # Needs to be overridden in DynNodeData
+    def should_update(self, iteration_number=None):
         """
         Always returns True
 
@@ -258,8 +248,8 @@ class _ChildNode(_Node):
     @cached_property
     def level(self):
         """
-        Returns the node level in the tree (0 for a leaf, and distance from
-        farest parent leaf otherwise).
+        Returns the node level in the tree (0 for a hyperparameter bud, 1 for a
+        leaf, and 1 + distance from farest parent leaf otherwise).
         """
         return max(parent.level for parent in self.list_of_parents) + 1
 
@@ -321,8 +311,8 @@ class _NodeData(_ParentNode):
             or castable to any ``ndarray``. Can be a scalar (for 0-dim array)
             The given object will be copied during class __init__ method.
             It will be cast to cupy.ndarray if cupy backend is used.
-        index_id: sequence of hashable, optional, default None
-            Name(s) of the data dimension. Must be a sequence of hashable with
+        index_id: tuple of hashables or str or None, optional, default None
+            Name(s) of the data dimension. Must be a tuple of hashable or str with
             length equal to the number of data dimension.
         """
         self.tensor = tensor
@@ -365,10 +355,10 @@ class _NodeData(_ParentNode):
         return str_out[:-1] + ", index_id={})".format(print_index_id)
 
 
-class _DynNodeData(_NodeData):
+class _DynNodeData0(_NodeData):
     """
-    Base class for all nodes that carry dynamic data, i.e. data that will change
-    during iterations.
+    Base class for all nodes that carry dynamic data, i.e. data that can evolve
+    during estimation algorithms.
     """
 
     def __init__(self, update_period=1, update_offset=0, update_succ=1, **kwargs):
@@ -376,14 +366,14 @@ class _DynNodeData(_NodeData):
         Parameters
         ----------
         update_period: int, optional, default 1
-            If 0, the node and its ancestors never update, otherwise see
+            If 0, the node and its ancestors (if any) never update, otherwise see
             update_succ doc.
         update_succ: int, optional, default 1
             Every ``update_period`` iterations, the node and its parents update
             ``update_succ`` successive times and then freeze.
         update_offset: int, optional, default 0
             Number of iterations before first update for the node and its
-            ancestors.
+            ancestors (if any).
         """
         self.update_offset = update_offset
         self.update_succ = update_succ
@@ -409,13 +399,6 @@ class _DynNodeData(_NodeData):
         """
         tensor = self.tensor if raw_tensor is None else raw_tensor
         return self.cast_array(tensor, force_numpy=force_numpy)
-
-    def _get_raw_mean_tensor_for_VBEM(self, current_iter):
-        raise NotImplementedError
-
-    def _get_mean_tensor_for_VBEM(self, child, current_iter):
-        raw_tensor = self._get_raw_mean_tensor_for_VBEM(current_iter)
-        return self.get_tensor_for_children(child, raw_tensor=raw_tensor)
 
     def get_tensor_for_children(self, child, force_numpy=False, raw_tensor=None):
         """
@@ -461,90 +444,6 @@ class _DynNodeData(_NodeData):
                 self.reshape_for_children_dict[child]
             )
         return self.cast_array(tensor_to_give, force_numpy=force_numpy)
-
-    def get_norm_axis_for_children(self, child):
-        if self.tensor_has_energy or self.tensor.ndim == 0 or self.norm_axis == None:
-            return None
-        if self.strides_for_children_dict[child] is not None:
-            raise NotImplementedError
-        # first we deal with the slicing for child
-        norm_axis_list = list(self.norm_axis)
-        explicit_slice = utils.explicit_slice(
-            self.slicing_for_children_dict[child], self.tensor.ndim
-        )
-        num_axis = 0
-        for sl in explicit_slice:
-            if isinstance(sl, int):
-                norm_axis_list = [
-                    val - 1 if val > num_axis else val for val in norm_axis_list
-                ]
-            else:
-                num_axis += 1
-        # then the reshape for child
-        shape_sliced_tensor = self.tensor[self.slicing_for_children_dict[child]].shape
-        shape_for_child = self.get_tensor_for_children(child).shape
-        if shape_sliced_tensor == shape_for_child:
-            return tuple(norm_axis_list)
-        if 1 in shape_sliced_tensor:
-            raise ValueError(
-                "{} cannot yet automatically infer `norm_axis_for_child` for its "
-                "child {} due to the presence of 1-size dimension of the sliced tensor. "
-                "You can either explicitly specify `norm_axis_for_child` during the filiation "
-                "creation, redefine `slice_for_child` during the filiation creation"
-                "so that 1-size dimensions are squeezed or run `Root.estimate_param` "
-                "with `check_model_validity=False` to bypass the validity check of the model."
-            )
-        cumprod_shape_1 = np.cumprod(shape_sliced_tensor)
-        if 1 in shape_for_child:
-            raise ValueError(
-                "{} cannot automatically infer `norm_axis_for_child` for its "
-                "child {} due to the presence of 1-size dimensions in `shape_for_child`"
-                "Please explicitly specify `norm_axis_for_child` during the filiation "
-                "creation, or run `Root.estimate_param` with `check_model_validity=False`"
-                "to bypass the validity check of the model."
-            )
-        cumprod_shape_2 = np.cumprod(shape_for_child)
-        cumprod_intersect = sorted(
-            list(set(cumprod_shape_1).intersection(cumprod_shape_2))
-        )
-        list_of_clust1, list_of_clust2 = [], []
-        min_dim = 0
-        for max_dim in cumprod_intersect:
-            list_of_clust1.append(
-                [
-                    dim
-                    for (dim, val) in enumerate(cumprod_shape_1)
-                    if (val > min_dim and val <= max_dim)
-                ]
-            )
-            list_of_clust2.append(
-                [
-                    dim
-                    for (dim, val) in enumerate(cumprod_shape_2)
-                    if (val > min_dim and val <= max_dim)
-                ]
-            )
-            min_dim = max_dim
-        norm_axis = []
-        for clust1, clust2 in zip(list_of_clust1, list_of_clust2):
-            if all(elem in norm_axis_list for elem in clust1):
-                norm_axis += clust2
-            elif any(elem in norm_axis_list for elem in clust1):
-                raise ValueError(
-                    "Invalid shape_for_child between {} and {}. "
-                    "Normalized axis should not be spitted during the reshaping"
-                    " process".format(self, child)
-                )
-        return tuple(norm_axis)
-
-    @cached_property
-    def norm_axis(self):
-        """
-        If inner tensor has no energy, specifies axis subject to a normalization
-        constraint. In such case, `self.tensor.sum(axis=self.norm_axis))` should
-        be filled with `1.0`.
-        """
-        raise NotImplementedError
 
     @lru_cache(maxsize=64)
     def no_tensor_transform_for_child(self, child):
@@ -650,14 +549,19 @@ class _DynNodeData(_NodeData):
         return shape
 
     def _compute_tensor_update_aux(
-        self, child, tensor_to_fill=None, value_to_force=None, cumsum=True
+        self,
+        child,
+        tensor_to_fill,
+        value_to_force=None,
+        cumsum=True,
+        method_to_call="_give_update",
     ):
         tensor_to_fill = (
             self.tensor_update if tensor_to_fill is None else tensor_to_fill
         )
         child_slicing = self.slicing_for_children_dict[child]
         if value_to_force is None:
-            fill_tensor = child._give_update(self)
+            fill_tensor = child.__getattribute__(method_to_call)(self)
         else:
             fill_tensor = value_to_force
         if self.strides_for_children_dict[child]:
@@ -678,30 +582,44 @@ class _DynNodeData(_NodeData):
             else:
                 tensor_to_fill[child_slicing] = fill_tensor
 
-    def compute_tensor_update(self):
-        """
-        Computes the multiplicative update.
-        It is the sum of all multiplicative updates given by all children.
-        """
-
-        if self.has_a_single_child:
-            if self.no_tensor_transform_for_child(self.first_child):
-                self.first_child._give_update(self, out=self.tensor_update)
-            else:
-                if not self.are_all_tensor_coefs_linked_to_at_least_one_child:
-                    self.tensor_update[...] = 1.0
-                self._compute_tensor_update_aux(self.first_child, cumsum=False)
+    def _compute_tensor_update_aux2(self, tensor_to_fill, method_to_call):
+        if self.has_a_single_child and self.no_tensor_transform_for_child(
+            self.first_child
+        ):
+            self.first_child.__getattribute__(method_to_call)(self, out=tensor_to_fill)
         else:
             if self.are_all_tensor_coefs_linked_to_at_least_one_child:
-                self.tensor_update[...] = 0.0
-            else:
-                self.tensor_update[...] = 1.0
+                tensor_to_fill[...] = 0.0
                 for child in self.list_of_children:
                     self._compute_tensor_update_aux(
-                        child, value_to_force=0, cumsum=False
+                        child,
+                        tensor_to_fill=tensor_to_fill,
+                        cumsum=True,
+                        method_to_call=method_to_call,
                     )
-            for child in self.list_of_children:
-                self._compute_tensor_update_aux(child, cumsum=True)
+            else:
+                # only possible for nodes that have energy and therefore all tensors
+                # coefs are seen by at most one child
+                tensor_to_fill[...] = 1.0
+                for child in self.list_of_children:
+                    self._compute_tensor_update_aux(
+                        child,
+                        tensor_to_fill=tensor_to_fill,
+                        cumsum=False,
+                        method_to_call=method_to_call,
+                    )
+
+    def compute_tensor_update(self):
+        """
+        Computes the multiplicative update if self is an Operator or a parameter
+        Leave. Computes the sum of expected sufficient statistics of its
+        children if self is a hyperparameter bud. In eather case, the resulting
+        update is the sum of all updates given by the children.
+        """
+
+        self._compute_tensor_update_aux2(
+            tensor_to_fill=self.tensor_update, method_to_call="_give_update"
+        )
 
     def get_index_id_for_children(self, child):
         """
@@ -727,13 +645,112 @@ class _DynNodeData(_NodeData):
             )
         return (test_tensor < 2.0).all()
 
+
+class _DynNodeData(_DynNodeData0):
+    """
+    Base class for all nodes that carry values belonging in the domain of
+    paramaters (basically paramater leaves and operators)
+    """
+
+    def _get_raw_mean_tensor_for_VBEM(self):
+        raise NotImplementedError
+
+    def _get_mean_tensor_for_VBEM(self, child):
+        raw_tensor = self._get_raw_mean_tensor_for_VBEM()
+        return self.get_tensor_for_children(child, raw_tensor=raw_tensor)
+
+    def get_norm_axis_for_children(self, child):
+        if self.tensor_has_energy or self.tensor.ndim == 0 or self.norm_axis == None:
+            return None
+        if self.strides_for_children_dict[child] is not None:
+            raise NotImplementedError
+        # first we deal with the slicing for child
+        norm_axis_list = list(self.norm_axis)
+        explicit_slice = utils.explicit_slice(
+            self.slicing_for_children_dict[child], self.tensor.ndim
+        )
+        num_axis = 0
+        for sl in explicit_slice:
+            if isinstance(sl, int):
+                norm_axis_list = [
+                    val - 1 if val > num_axis else val for val in norm_axis_list
+                ]
+            else:
+                num_axis += 1
+        # then the reshape for child
+        shape_sliced_tensor = self.tensor[self.slicing_for_children_dict[child]].shape
+        shape_for_child = self.get_tensor_for_children(child).shape
+        if shape_sliced_tensor == shape_for_child:
+            return tuple(norm_axis_list)
+        if 1 in shape_sliced_tensor:
+            raise ValueError(
+                "{} cannot yet automatically infer `norm_axis_for_child` for its "
+                "child {} due to the presence of 1-size dimension of the sliced tensor. "
+                "You can either explicitly specify `norm_axis_for_child` during the filiation "
+                "creation, redefine `slice_for_child` during the filiation creation"
+                "so that 1-size dimensions are squeezed or run `Root.estimate_param` "
+                "with `check_model_validity=False` to bypass the validity check of the model."
+            )
+        cumprod_shape_1 = np.cumprod(shape_sliced_tensor)
+        if 1 in shape_for_child:
+            raise ValueError(
+                "{} cannot automatically infer `norm_axis_for_child` for its "
+                "child {} due to the presence of 1-size dimensions in `shape_for_child`"
+                "Please explicitly specify `norm_axis_for_child` during the filiation "
+                "creation, or run `Root.estimate_param` with `check_model_validity=False`"
+                "to bypass the validity check of the model."
+            )
+        cumprod_shape_2 = np.cumprod(shape_for_child)
+        cumprod_intersect = sorted(
+            list(set(cumprod_shape_1).intersection(cumprod_shape_2))
+        )
+        list_of_clust1, list_of_clust2 = [], []
+        min_dim = 0
+        for max_dim in cumprod_intersect:
+            list_of_clust1.append(
+                [
+                    dim
+                    for (dim, val) in enumerate(cumprod_shape_1)
+                    if (val > min_dim and val <= max_dim)
+                ]
+            )
+            list_of_clust2.append(
+                [
+                    dim
+                    for (dim, val) in enumerate(cumprod_shape_2)
+                    if (val > min_dim and val <= max_dim)
+                ]
+            )
+            min_dim = max_dim
+        norm_axis = []
+        for clust1, clust2 in zip(list_of_clust1, list_of_clust2):
+            if all(elem in norm_axis_list for elem in clust1):
+                norm_axis += clust2
+            elif any(elem in norm_axis_list for elem in clust1):
+                raise ValueError(
+                    "Invalid shape_for_child between {} and {}. "
+                    "Normalized axis should not be spitted during the reshaping"
+                    " process".format(self, child)
+                )
+        return tuple(norm_axis)
+
+    @cached_property
+    def norm_axis(self):
+        """
+        If inner tensor has no energy, specifies axis subject to a normalization
+        constraint. In such case, `self.tensor.sum(axis=self.norm_axis))` should
+        be filled with `1.0`.
+        """
+        raise NotImplementedError
+
     def _check_model_validity(self):
         super()._check_model_validity()
 
-        # If tensor has energy, each of its value can be see at most by one child
-        # otherwise it would mean that energy is duplicated. On the other hand,
-        # if a value is seen by no child, it is not a problem because tensor_update
-        # can have default value = 1 as if we had masked observations
+        # If tensor has energy, each of its value can be seen at most by one
+        # child otherwise it would mean that energy is duplicated. On the other
+        # hand, if a value is seen by no child, it is not a problem because
+        # tensor_update can have default value = 1 as if we had masked
+        # observations
         if self.tensor_has_energy:
             if not self.are_all_tensor_coefs_linked_to_at_most_one_child:
                 raise ValueError(
@@ -775,3 +792,4 @@ class _DynNodeData(_NodeData):
                         " putting, for instance, a LeafGamma or any other leaf that "
                         "has energy upstream".format(self)
                     )
+

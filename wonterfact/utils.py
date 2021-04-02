@@ -148,6 +148,38 @@ def infer_backend(x):
     return backend
 
 
+@lru_cache(maxsize=10242048)
+def get_transpose_and_slice(sub, sub_out):
+    """
+    Gives transposition and slicing to apply to an array whose supscripts name
+    are sub so it can be sum to another array whose supscripts name are sub_out.
+    """
+    transpose = tuple(sub.index(idx) for idx in sub_out if idx in sub)
+    slice_to_apply = tuple(None if idx not in sub else slice(None) for idx in sub_out)
+    return transpose, slice_to_apply
+
+
+def supscript_summation(op1, sub1, op2, sub2, sub_out):
+    """
+    Equivalent to einsum but for summation of two tensors instead of multiplication.
+
+    Parameters
+    ----------
+    op1: array_like
+        First operand
+    sub1: tuple of hashable or string
+        Sequence of IDs for each axis of operand0
+    op2: array_like
+        Second operand
+    sub2: tuple of hashable or string
+        Sequence of IDs for each axis of operand1
+    sub_out: tuple of hashable or string
+    """
+    transpose1, slice1 = get_transpose_and_slice(sub1, sub_out)
+    transpose2, slice2 = get_transpose_and_slice(sub2, sub_out)
+    return op1.transpose(transpose1)[slice1] + op2.transpose(transpose2)[slice2]
+
+
 def _parse_einsum_args(*args):
     if isinstance(args[0], str):
         try:
