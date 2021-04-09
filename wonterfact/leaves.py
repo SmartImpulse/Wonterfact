@@ -116,17 +116,20 @@ class _Leaf(core_nodes._DynNodeData, core_nodes._ChildNode):
         idx = tuple(idx[::-1])
         if isinstance(self.index_id, str):
             idx = "".join(idx)
+        update_period = 1 if self.update_period else 0
         if type == "shape":
             bud = buds.BudShape(
                 name="{}_{}".format(self.name, type),
                 index_id=idx,
                 tensor=prior_val.squeeze(),
+                update_period=update_period,
             )
         elif type == "rate":
             bud = buds.BudRate(
                 name="{}_{}".format(self.name, type),
                 index_id=idx,
                 tensor=prior_val.squeeze(),
+                update_period=update_period,
             )
         else:
             raise ValueError("type must be either 'rate' or 'shape'")

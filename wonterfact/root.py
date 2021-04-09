@@ -574,7 +574,8 @@ class Root(_ChildNode):
             raise ValueError("hyperparameters cannot be estimated in EM mode")
         # first compute tensor update
         for bud in self.nodes_by_level[0]:
-            bud.compute_tensor_update_online(counter_max=counter_max)
+            if bud.update_period != 0:
+                bud.compute_tensor_update_online(counter_max=counter_max)
         for __ in range(n_iter):
             for bud in self.nodes_by_level[0]:
                 if isinstance(bud, buds.BudShape) and bud.update_period != 0:

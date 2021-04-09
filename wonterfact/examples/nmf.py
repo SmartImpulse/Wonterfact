@@ -175,7 +175,7 @@ def make_smooth_activation_nmf2():
 
 def make_sparse_nmf(prior_rate=0.001, obs=None, atoms=None):
     """
-    NMF with minimization of \sum_{k != k'} P(k|t)P(k'|t)E(t) where P(k|t) are
+    NMF with minimization of \\sum_{k != k'} P(k|t)P(k'|t)E(t) where P(k|t) are
     the activations and E(t) total energy at time t
     """
     dim_f, dim_t, dim_k = 2, 100, 2
