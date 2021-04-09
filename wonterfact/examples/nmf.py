@@ -54,6 +54,7 @@ def make_nmf(fix_atoms=False):
         index_id="tk",
         tensor=np.ones_like(activations_tk),
         prior_rate=1e-5,
+        prior_shape=1,
     )
     mul_tf = wtf.Multiplier(name="multiplier", index_id="tf")
     mul_tf.new_parents(leaf_kf, leaf_tk)

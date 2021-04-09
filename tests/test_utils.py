@@ -687,3 +687,19 @@ def test_clip_inplace(xp):
     arr_out = arr_init.copy()
     utils.clip_inplace(arr_out, a_min=3.5, a_max=3.8)
     assert (arr_out == xp.array([3.5, 3.8])).all()
+
+
+def test_inverse_gamma(xp):
+    if xp == np:
+        from scipy.special import digamma
+    elif xp == cp:
+        from cupyx.scipy.special import digamma  # pylint: disable=import-error
+    input_arr_pos = xp.array([1.0, 2.0, 3.443])
+    assert xp.allclose(utils.inverse_digamma(digamma(input_arr_pos)), input_arr_pos)
+    assert xp.allclose(digamma(utils.inverse_digamma(input_arr_pos)), input_arr_pos)
+    input_arr_neg = xp.array([-1.0, -2.0, -3.443])
+    assert xp.allclose(digamma(utils.inverse_digamma(input_arr_neg)), input_arr_neg)
+
+    output_arr = xp.zeros_like(input_arr_pos)
+    utils.inverse_digamma(input_arr_pos, out=output_arr)
+    assert xp.allclose(utils.inverse_digamma(input_arr_pos), output_arr)

@@ -106,9 +106,10 @@ class BudShape(_Bud):
 
     def update_tensor(self):
         self.get_update_bis(tensor_to_fill=self.tensor_update_bis)
-        self.tensor[...] = (
-            self.tensor_update_bis + self.tensor_update
-        ) / self.number_of_users
+        utils.inverse_digamma(
+            (self.tensor_update_bis + self.tensor_update) / self.number_of_users,
+            out=self.tensor,
+        )
 
 
 class BudRate(_Bud):

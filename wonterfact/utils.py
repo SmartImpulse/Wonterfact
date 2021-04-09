@@ -107,6 +107,30 @@ class BackendSpecific:
         else:
             BackendSpecific.raise_backend_error(backend)
 
+    @staticmethod
+    @lru_cache(maxsize=4)
+    def digamma(backend):
+        if backend == "numpy":
+            return sps.digamma
+        elif backend == "cupy":
+            from cupyx.scipy.special import (
+                digamma as digamma_cupy,
+            )  # pylint: disable=import-error
+
+            return digamma_cupy
+
+    @staticmethod
+    @lru_cache(maxsize=4)
+    def polygamma(backend):
+        if backend == "numpy":
+            return sps.polygamma
+        elif backend == "cupy":
+            from cupyx.scipy.special import (
+                polygamma as polygamma_cupy,
+            )  # pylint: disable=import-error
+
+            return polygamma_cupy
+
 
 xp_utils = BackendSpecific()
 
@@ -223,6 +247,9 @@ def einsum(*args, **kwargs):
     if len(args2) == 5:
         output = _einsum_two_operands(*args2, out=out, **kwargs)
     else:
+        if backend == "cupy" and out is not None:  # cupy does not support "out"
+            out[...] = opt_einsum.contract(*args2, **kwargs)
+            return
         output = opt_einsum.contract(*args2, out=out, **kwargs)
     if out is None:
         return output
@@ -726,12 +753,13 @@ def scalar_compatible(*arg_names):
     """
     A decorator that deals with scalar or 0-dim array input for methods that
     only take array input with array.ndim > 0. Only available for methods whose
-    array input must have the same shape.
+    array inputs must have the same shape. If an array is "None", then it is
+    passed as is.
 
     Parameters
     ----------
-    *args_names: sequence of str
-        Sequence of input array names of the function to be decorated.
+    *args_names: sequence of str Sequence of input array names of the function
+        to be decorated.
     """
 
     def _scalar_compatible(func):
@@ -740,7 +768,8 @@ def scalar_compatible(*arg_names):
         @wraps(func)
         def scalar_compatible_func(*args, **kwargs):
             args = list(args)
-            for num_arg, arg_name in enumerate(arg_names):
+            backend = None
+            for arg_name in arg_names:
                 arg_level = func_args.index(arg_name)
                 if arg_level < len(args):
                     arg_value = args[arg_level]
@@ -748,17 +777,20 @@ def scalar_compatible(*arg_names):
                 else:
                     arg_value = kwargs.get(arg_name)
                     in_args = False
-                if num_arg == 0:
+                if backend is None and arg_value is not None:
                     backend = infer_backend(arg_value)
                     xp = xp_utils.back(backend)
                     isscalar = xp.isscalar(arg_value)
                     ndim = 0 if isscalar else arg_value.ndim
-                arg_value = xp.atleast_1d(arg_value)
+                if arg_value is not None:
+                    arg_value = xp.atleast_1d(arg_value)
                 if in_args:
                     args[arg_level] = arg_value
                 else:
                     kwargs[arg_name] = arg_value
             output_arr = func(*args, **kwargs)
+            if output_arr is None:
+                return
             if isscalar:
                 return output_arr[0]
             if ndim == 0:
@@ -1087,3 +1119,33 @@ def clip_inplace(arr, a_min=None, a_max=None, backend=None):
             xp_utils.get_cupy_utils("cupy").min_clip(arr, a_min, arr)
         if a_max is not None:
             xp_utils.get_cupy_utils("cupy").max_clip(arr, a_max, arr)
+
+
+@scalar_compatible("input_arr", "out")
+def inverse_digamma(input_arr, num_iter=5, backend=None, out=None):
+    """
+    Computes the inverse digamma function using Newton's method
+    See Appendix c of Minka, T. P. (2003). Estimating a Dirichlet distribution.
+    Annals of Physics, 2000(8), 1-13. http://doi.org/10.1007/s00256-007-0299-1 for details.
+    """
+    backend = backend or infer_backend(input_arr)
+
+    xp = xp_utils.back(backend)
+    # initialization
+    if out is None:
+        # to be sure int are converted into floats
+        output_arr = xp.zeros_like(input_arr) + 0.0
+    else:
+        output_arr = out
+    mask = input_arr >= -2.22
+    output_arr[mask] = xp.exp(input_arr[mask]) + 0.5
+    output_arr[~mask] = -(1 / (input_arr[~mask] + -xp_utils.digamma(backend)(1)))
+    # do Newton update here
+    order = xp.array(1)
+    for __ in range(num_iter):
+        output_arr -= (
+            xp_utils.digamma(backend)(output_arr) - input_arr
+        ) / xp_utils.polygamma(backend)(order, output_arr)
+
+    if out is None:
+        return output_arr

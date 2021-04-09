@@ -25,7 +25,7 @@ from functools import cached_property
 
 # Relative imports
 from .glob_var_manager import glob
-from .core_nodes import _ChildNode
+from .core_nodes import _ChildNode, _DynNodeData
 from . import buds
 from . import graphviz
 
@@ -569,7 +569,7 @@ class Root(_ChildNode):
             )
         self.need_a_bump = False
 
-    def estim_hyperparameters(self, n_iter, counter_max=0):
+    def estimate_hyperparam(self, n_iter, counter_max=0):
         if self.inference_mode == "EM":
             raise ValueError("hyperparameters cannot be estimated in EM mode")
         # first compute tensor update
@@ -577,10 +577,10 @@ class Root(_ChildNode):
             bud.compute_tensor_update_online(counter_max=counter_max)
         for __ in range(n_iter):
             for bud in self.nodes_by_level[0]:
-                if isinstance(bud, buds.BudShape):
+                if isinstance(bud, buds.BudShape) and bud.update_period != 0:
                     bud.update_tensor()
             for bud in self.nodes_by_level[0]:
-                if isinstance(bud, buds.BudRate):
+                if isinstance(bud, buds.BudRate) and bud.update_period != 0:
                     bud.update_tensor()
         # empty cache because hyperparameters have changed
         for leaf in self.nodes_by_level[1]:
@@ -613,7 +613,16 @@ class Root(_ChildNode):
         parent_fit = 0
         for parent in self.list_of_parents:
             parent_fit += parent._get_data_fitting()
+        if self.inference_mode == "VBEM":
+            parent_fit -= self._get_total_energy_leak()
         return parent_fit
+
+    def _get_total_energy_leak(self):
+        return sum(
+            parent._total_energy_leak()
+            for parent in self.census()
+            if isinstance(parent, _DynNodeData)
+        )
 
     def get_cost_func(self):
         """

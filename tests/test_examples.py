@@ -85,25 +85,29 @@ def test_example(
         ):
             with pytest.raises(NotImplementedError):
                 tree.estimate_param(n_iter=100)
+            return
+        for ii in range(10):
+            tree.estimate_param(n_iter=10)
+            tree.estimate_hyperparam(n_iter=ii)
     else:
         tree.estimate_param(n_iter=100)
-        assert t_utils._assert_cost_decrease(tree)
-        assert t_utils._assert_graphviz_ok(tree)
-        base_key = (
-            tree_maker,
-            tuple(args),
-            frozenset(kwargs.items()),
-            inference_mode,
-            update_type,
-            limit_skellam,
-        )
+    assert t_utils._assert_cost_decrease(tree)
+    assert t_utils._assert_graphviz_ok(tree)
+    base_key = (
+        tree_maker,
+        tuple(args),
+        frozenset(kwargs.items()),
+        inference_mode,
+        update_type,
+        limit_skellam,
+    )
 
-        cost_record_results[base_key + (backend,)] = np.array(tree.cost_record)
-        if (
-            base_key + ("cpu",) in cost_record_results
-            and base_key + ("gpu",) in cost_record_results
-        ):
-            assert np.allclose(
-                cost_record_results[base_key + ("cpu",)],
-                cost_record_results[base_key + ("gpu",)],
-            )
+    cost_record_results[base_key + (backend,)] = np.array(tree.cost_record)
+    if (
+        base_key + ("cpu",) in cost_record_results
+        and base_key + ("gpu",) in cost_record_results
+    ):
+        assert np.allclose(
+            cost_record_results[base_key + ("cpu",)],
+            cost_record_results[base_key + ("gpu",)],
+        )

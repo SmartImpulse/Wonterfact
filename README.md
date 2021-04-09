@@ -14,13 +14,13 @@ This project has been initiated from 2015 to 2019 by Benoit Fuentes as a researc
  - Smooth constraints can be added to factors via prior distributions.
  - Hard linear equality or inequality constraints can be applied on factor tensors.
  - Two inference algorithms have been implemented: the Expectation-Maximization (EM) algorithm to find the posterior maximum of the parameters or the Variational Bayes EM (VBEM) algorithm to find an approximation of the posterior distributions of the parameters.
- - In VBEM mode, hyperparameters of the prior distributions can also be inferred (feature not available yet, to come soon).
+ - In VBEM mode, hyperparameters of the prior distributions can also be inferred.
  - In VBEM mode, wonterfact is a generalization of Latent Dirichlet Allocation (LDA).
  - Possibility to use cpu or gpu backend.
 
 
 ## References
-For the moment, no article has been published yet to introduce this package and describe theoretical background on which it relies. Such an article should be published during the year 2021.
+For the moment, no article has been published yet to introduce this package and describe theoretical background on which it relies. Such an article should be published during the year 2021. Meanwhile, you can check on the [technical report] (https://www.benoit-fuentes.fr/downloads/Wonterfact_technical_report.pdf) (beware this is work in progress) if you're interested in the theory.
 
 
 ## Installation

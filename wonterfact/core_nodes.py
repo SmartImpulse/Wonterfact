@@ -645,19 +645,19 @@ class _DynNodeData0(_NodeData):
             )
         return (test_tensor < 2.0).all()
 
+    def _backup_tensor(self):  # TODO eventually don't backup proxys and multiplexers
+        self._tensor_backup = self.tensor.copy()
+
+    def _restore_tensor(self):
+        self.tensor[...] = self._tensor_backup
+        del self._tensor_backup
+
 
 class _DynNodeData(_DynNodeData0):
     """
     Base class for all nodes that carry values belonging in the domain of
     paramaters (basically paramater leaves and operators)
     """
-
-    def _get_raw_mean_tensor_for_VBEM(self):
-        raise NotImplementedError
-
-    def _get_mean_tensor_for_VBEM(self, child):
-        raw_tensor = self._get_raw_mean_tensor_for_VBEM()
-        return self.get_tensor_for_children(child, raw_tensor=raw_tensor)
 
     def get_norm_axis_for_children(self, child):
         if self.tensor_has_energy or self.tensor.ndim == 0 or self.norm_axis == None:
@@ -793,3 +793,12 @@ class _DynNodeData(_DynNodeData0):
                         "has energy upstream".format(self)
                     )
 
+    def _total_energy_leak(self):
+        if not self.tensor_has_energy:
+            return 0
+        tensor_copy = self.tensor.copy()
+        for child in self.list_of_children:
+            self._compute_tensor_update_aux(
+                child, tensor_to_fill=tensor_copy, value_to_force=0.0, cumsum=False
+            )
+        return tensor_copy.sum().item()

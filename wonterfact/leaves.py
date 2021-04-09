@@ -334,27 +334,27 @@ class LeafGamma(_Leaf):
                 self.tensor *= self.total_max_energy / total_energy
 
     def _normalize_tensor(self):
-        if self.rate_parent is not None:
-            den = 1 + self.prior_rate
-        else:
-            den = 1
         if self._inference_mode == "VBEM":
             self.tensor[...] = utils.exp_digamma(self.alpha_estim)
         if self.constraint_coeffs is not None:
             sigma = utils._find_equality_root(
                 self.tensor,
-                den,
+                self.prior_rate_estim,
                 self.constraint_coeffs,
                 self.constraint_max_iter,
                 type=self.constraint_type,
                 atol=1e-10,
             )
-            self.tensor /= den - sigma * self.constraint_coeffs
+            self.tensor /= self.prior_rate_estim - sigma * self.constraint_coeffs
         else:
-            self.tensor /= den
+            self.tensor /= self.prior_rate_estim
         if self.prior_accelerator is not None:
             self.tensor *= self.prior_accelerator
         self._clip_max_energy()
+
+    @property
+    def prior_rate_estim(self):
+        return 1 + self.prior_rate
 
     @cached_property
     def _cst_prior_value(self):
@@ -364,15 +364,13 @@ class LeafGamma(_Leaf):
                 prior_shape
             )
         elif self._inference_mode == "VBEM":
-            prior_shape = (
-                glob.xp.zeros(self.tensor.shape, dtype=glob.float) + self.prior_shape
-            )
+            prior_shape = glob.xp.zeros_like(self.tensor) + self.prior_shape
             cst_prior = utils.xlogy(
-                prior_shape, self.prior_rate / (self.prior_rate + 1)
+                prior_shape, self.prior_rate / self.prior_rate_estim
             ) - glob.sps.gammaln(prior_shape)
         if self.prior_accelerator is not None:
             cst_prior *= self.prior_accelerator
-        return float(cst_prior.sum())  # float is when cupy is used
+        return cst_prior.sum().item()
 
     def _prior_value(self):
         if self.update_period == 0:
@@ -396,13 +394,12 @@ class LeafGamma(_Leaf):
                     * (self.alpha_estim - self.prior_shape)
                 )
                 + glob.sps.gammaln(self.alpha_estim)
-                + self.alpha_estim / (self.prior_rate + 1)
+                # + self.alpha_estim * (1 - self.prior_rate / self.prior_rate_estim)
+                # this last part is canceled by one of the fitting_data components of the observers
             )
         if self.prior_accelerator is not None:
             prior_val *= self.prior_accelerator
-        return (
-            float(prior_val.sum()) + self._cst_prior_value
-        )  # float is when cupy is used
+        return prior_val.sum().item() + self._cst_prior_value
 
     def _bump(self):
         if self._inference_mode == "EM":
@@ -427,19 +424,11 @@ class LeafGamma(_Leaf):
     def norm_axis(self):
         return None
 
-    @lru_cache(maxsize=1)
-    def _get_raw_mean_tensor_for_VBEM(self):
-        if self.update_period == 0:
-            raw_tensor = self.tensor
-        else:
-            raw_tensor = self.alpha_estim / (self.prior_rate + 1)
-        return raw_tensor
-
     def _give_update(self, parent, out=None):
         if isinstance(parent, buds.BudRate):
             ## returns quantity m_d (cf technical report)
             parent_idx_id = parent.get_index_id_for_children(self)
-            post_mean_tensor = self._get_raw_mean_tensor_for_VBEM()
+            post_mean_tensor = self.alpha_estim / self.prior_rate_estim
             update_tensor = utils.einsum(
                 post_mean_tensor, self.index_id, parent_idx_id, out=out
             )
@@ -552,35 +541,31 @@ class LeafDirichlet(_Leaf):
     @cached_property
     def _cst_prior_value(self):
         if self._inference_mode == "EM":
-            if self._prior_alpha_all_one:  # no prior
-                return 0
-            prior_shape = (
-                glob.xp.zeros(self.tensor.shape, dtype=glob.float) + self.prior_shape
-            )
+            prior_shape = glob.xp.zeros_like(self.tensor) + self.prior_shape
             cst_prior = (
-                glob.sps.gammaln(prior_shape)
-                - glob.sps.gammaln((prior_shape).mean(self.norm_axis, keepdims=True))
-            ).sum()
+                glob.sps.gammaln((prior_shape).sum(self.norm_axis)).sum()
+                - glob.sps.gammaln(prior_shape).sum()
+            )
         elif self._inference_mode == "VBEM":
             prior_shape = (
                 glob.xp.zeros(self.tensor.shape, dtype=glob.float) + self.prior_shape
             )
             cst_prior = (
-                glob.sps.gammaln(prior_shape.mean(self.norm_axis, keepdims=True)).sum()
+                glob.sps.gammaln(prior_shape.sum(self.norm_axis, keepdims=True)).sum()
                 - glob.sps.gammaln(prior_shape).sum()
             )
         if self.prior_accelerator is not None:
             cst_prior *= self.prior_accelerator
-        # return cst_prior.sum()
-        return float(cst_prior)
+        return cst_prior.item()
 
     def _prior_value(self):
         if self.update_period == 0 or self.norm_axis == ():
             return 0
         if self._inference_mode == "EM":
             if self._prior_alpha_all_one:
-                return 0
-            prior_val = utils.xlogy(self._prior_shape_minus_one, self.tensor).sum()
+                prior_val = np.array(0)
+            else:
+                prior_val = utils.xlogy(self._prior_shape_minus_one, self.tensor).sum()
         elif self._inference_mode == "VBEM":
             prior_shape = (
                 glob.xp.zeros(self.tensor.shape, dtype=glob.float) + self.prior_shape
@@ -606,7 +591,7 @@ class LeafDirichlet(_Leaf):
             ).sum()
         if self.prior_accelerator is not None:
             prior_val *= self.prior_accelerator
-        return float(prior_val) + self._cst_prior_value
+        return prior_val.item() + self._cst_prior_value
 
     def _bump(self):
         if self._inference_mode == "EM":
@@ -632,21 +617,12 @@ class LeafDirichlet(_Leaf):
     def tensor_has_energy(self):
         return False
 
-    @lru_cache(maxsize=1)
-    def _get_raw_mean_tensor_for_VBEM(self):
-        if self.update_period == 0:
-            raw_tensor = self.tensor
-        else:
-            norm_tensor = self.alpha_estim.sum(axis=self.norm_axis, keepdims=True)
-            raw_tensor = self.alpha_estim / norm_tensor
-        return raw_tensor
-
     def _give_update_bis(self, parent, out=None):
         if isinstance(parent, buds.BudShape):
             parent_idx_id = parent.get_index_id_for_children(self)
             prior_tensor = glob.xp.zeros_like(self.tensor) + self.prior_shape
             prior_tensor = glob.xp.zeros_like(self.tensor) + glob.sps.digamma(
-                prior_tensor.sum(self.norm_axis, keep_dims=True)
+                prior_tensor.sum(self.norm_axis, keepdims=True)
             )
 
             update_tensor = utils.einsum(
@@ -739,7 +715,7 @@ class LeafGammaNorm(LeafGamma):
     def prior_rate_as_float(self):
         if self.prior_rate.size != 1:
             raise NotImplementedError
-        return float(self.prior_rate)
+        return self.prior_rate.item()
 
     @cached_property
     def _cst_prior_value(self):
@@ -771,4 +747,4 @@ class LeafGammaNorm(LeafGamma):
             raise NotImplementedError
         if self.prior_accelerator is not None:
             prior_val *= self.prior_accelerator
-        return float(prior_val.sum()) + self._cst_prior_value
+        return prior_val.sum().item() + self._cst_prior_value
