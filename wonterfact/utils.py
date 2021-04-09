@@ -107,6 +107,30 @@ class BackendSpecific:
         else:
             BackendSpecific.raise_backend_error(backend)
 
+    @staticmethod
+    @lru_cache(maxsize=4)
+    def digamma(backend):
+        if backend == "numpy":
+            return sps.digamma
+        elif backend == "cupy":
+            from cupyx.scipy.special import (
+                digamma as digamma_cupy,
+            )  # pylint: disable=import-error
+
+            return digamma_cupy
+
+    @staticmethod
+    @lru_cache(maxsize=4)
+    def polygamma(backend):
+        if backend == "numpy":
+            return sps.polygamma
+        elif backend == "cupy":
+            from cupyx.scipy.special import (
+                polygamma as polygamma_cupy,
+            )  # pylint: disable=import-error
+
+            return polygamma_cupy
+
 
 xp_utils = BackendSpecific()
 
@@ -146,6 +170,38 @@ def infer_backend(x):
     if backend == "builtins":
         return "numpy"
     return backend
+
+
+@lru_cache(maxsize=10242048)
+def get_transpose_and_slice(sub, sub_out):
+    """
+    Gives transposition and slicing to apply to an array whose supscripts name
+    are sub so it can be sum to another array whose supscripts name are sub_out.
+    """
+    transpose = tuple(sub.index(idx) for idx in sub_out if idx in sub)
+    slice_to_apply = tuple(None if idx not in sub else slice(None) for idx in sub_out)
+    return transpose, slice_to_apply
+
+
+def supscript_summation(op1, sub1, op2, sub2, sub_out):
+    """
+    Equivalent to einsum but for summation of two tensors instead of multiplication.
+
+    Parameters
+    ----------
+    op1: array_like
+        First operand
+    sub1: tuple of hashable or string
+        Sequence of IDs for each axis of operand0
+    op2: array_like
+        Second operand
+    sub2: tuple of hashable or string
+        Sequence of IDs for each axis of operand1
+    sub_out: tuple of hashable or string
+    """
+    transpose1, slice1 = get_transpose_and_slice(sub1, sub_out)
+    transpose2, slice2 = get_transpose_and_slice(sub2, sub_out)
+    return op1.transpose(transpose1)[slice1] + op2.transpose(transpose2)[slice2]
 
 
 def _parse_einsum_args(*args):
@@ -191,6 +247,9 @@ def einsum(*args, **kwargs):
     if len(args2) == 5:
         output = _einsum_two_operands(*args2, out=out, **kwargs)
     else:
+        if backend == "cupy" and out is not None:  # cupy does not support "out"
+            out[...] = opt_einsum.contract(*args2, **kwargs)
+            return
         output = opt_einsum.contract(*args2, out=out, **kwargs)
     if out is None:
         return output
@@ -694,12 +753,13 @@ def scalar_compatible(*arg_names):
     """
     A decorator that deals with scalar or 0-dim array input for methods that
     only take array input with array.ndim > 0. Only available for methods whose
-    array input must have the same shape.
+    array inputs must have the same shape. If an array is "None", then it is
+    passed as is.
 
     Parameters
     ----------
-    *args_names: sequence of str
-        Sequence of input array names of the function to be decorated.
+    *args_names: sequence of str Sequence of input array names of the function
+        to be decorated.
     """
 
     def _scalar_compatible(func):
@@ -708,7 +768,8 @@ def scalar_compatible(*arg_names):
         @wraps(func)
         def scalar_compatible_func(*args, **kwargs):
             args = list(args)
-            for num_arg, arg_name in enumerate(arg_names):
+            backend = None
+            for arg_name in arg_names:
                 arg_level = func_args.index(arg_name)
                 if arg_level < len(args):
                     arg_value = args[arg_level]
@@ -716,17 +777,20 @@ def scalar_compatible(*arg_names):
                 else:
                     arg_value = kwargs.get(arg_name)
                     in_args = False
-                if num_arg == 0:
+                if backend is None and arg_value is not None:
                     backend = infer_backend(arg_value)
                     xp = xp_utils.back(backend)
                     isscalar = xp.isscalar(arg_value)
                     ndim = 0 if isscalar else arg_value.ndim
-                arg_value = xp.atleast_1d(arg_value)
+                if arg_value is not None:
+                    arg_value = xp.atleast_1d(arg_value)
                 if in_args:
                     args[arg_level] = arg_value
                 else:
                     kwargs[arg_name] = arg_value
             output_arr = func(*args, **kwargs)
+            if output_arr is None:
+                return
             if isscalar:
                 return output_arr[0]
             if ndim == 0:
@@ -924,35 +988,61 @@ def forced_iter(input):
     return it
 
 
+def _is_bool_masking(elem):
+    """
+    Returns boolean masking as numpy array if elem is a boolean mask. Returns None
+    otherwise
+    """
+    try:
+        iter(elem)
+        elem_as_np = np.array(elem)
+        if elem_as_np.dtype == bool:
+            return elem_as_np
+    except TypeError:
+        pass
+    return None
+
+
 def explicit_slice(input_slice, ndim):
     """
     Returns explicit slicing as tuple of a ndim-ndarray given an input slicing.
+    input slicing must be either a tuple or a single element (slice for the first
+    dimension).
     If `ndim` equals 0, then input_slice is returned as is.
 
     Examples
     --------
     >>> explicit_slice(Ellipsis, 2)
-    (slice(None, None, None), slice(None, None))
+    (slice(None, None, None), slice(None, None, None))
     >>> explicit_slice([Ellipsis, 1], 2)
     (slice(None, None, None), 1)
     >>> explicit_slice([slice(1), 1], 3)
-    (slice(None, 1, None), 2, slice(None, None, None))
+    (slice(None, 1, None), 1, slice(None, None, None))
     >>> explicit_slice(Ellipsis, 0)
     Ellipsis
     """
+
     if ndim == 0:
         return input_slice
+    if type(input_slice) != tuple:
+        input_slice = (input_slice,)
+
+    # check if there is a boolean masking, in which case ndim might be lower
+    for elem in input_slice:
+        elem_as_np = _is_bool_masking(elem)
+        if elem_as_np is not None:
+            ndim -= elem_as_np.ndim - 1
+
     explicit_slice = [slice(None),] * ndim
-    input_as_tuple = tuple(forced_iter(input_slice))
     found_ellipsis = False
-    for num_dim, sl in enumerate(input_as_tuple):
-        if sl == Ellipsis:
+    for num_dim, sl in enumerate(input_slice):
+        if sl is Ellipsis:
             found_ellipsis = True
             break
         explicit_slice[num_dim] = sl
     if found_ellipsis:
-        for num_dim, sl in enumerate(input_as_tuple[::-1]):
-            if sl == Ellipsis:
+        for num_dim, sl in enumerate(input_slice[::-1]):
+            if sl is Ellipsis:
                 break
             explicit_slice[-1 - num_dim] = sl
 
@@ -1029,3 +1119,33 @@ def clip_inplace(arr, a_min=None, a_max=None, backend=None):
             xp_utils.get_cupy_utils("cupy").min_clip(arr, a_min, arr)
         if a_max is not None:
             xp_utils.get_cupy_utils("cupy").max_clip(arr, a_max, arr)
+
+
+@scalar_compatible("input_arr", "out")
+def inverse_digamma(input_arr, num_iter=5, backend=None, out=None):
+    """
+    Computes the inverse digamma function using Newton's method
+    See Appendix c of Minka, T. P. (2003). Estimating a Dirichlet distribution.
+    Annals of Physics, 2000(8), 1-13. http://doi.org/10.1007/s00256-007-0299-1 for details.
+    """
+    backend = backend or infer_backend(input_arr)
+
+    xp = xp_utils.back(backend)
+    # initialization
+    if out is None:
+        # to be sure int are converted into floats
+        output_arr = xp.zeros_like(input_arr) + 0.0
+    else:
+        output_arr = out
+    mask = input_arr >= -2.22
+    output_arr[mask] = xp.exp(input_arr[mask]) + 0.5
+    output_arr[~mask] = -(1 / (input_arr[~mask] + -xp_utils.digamma(backend)(1)))
+    # do Newton update here
+    order = xp.array(1)
+    for __ in range(num_iter):
+        output_arr -= (
+            xp_utils.digamma(backend)(output_arr) - input_arr
+        ) / xp_utils.polygamma(backend)(order, output_arr)
+
+    if out is None:
+        return output_arr

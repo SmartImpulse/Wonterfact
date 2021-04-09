@@ -27,11 +27,12 @@ import numpy as np
 from methodtools import lru_cache
 
 # Relative imports
-from . import utils, core_nodes
+from . import utils
+from .core_nodes import _ChildNode, _DynNodeData
 from .glob_var_manager import glob
 
 
-class _Operator(core_nodes._ChildNode, core_nodes._DynNodeData):
+class _Operator(_ChildNode, _DynNodeData):
     """
     Mother class of all operators
     """
@@ -87,12 +88,7 @@ class Proxy(_Operator):
                 """A Proxy's tensor should be a view to its parent's:
                 I guess you cannot use this 'slice_for_child'"""
             )
-        self.tensor_update = glob.xp.zeros(self.tensor.shape, dtype=glob.float)
-
-    @lru_cache(maxsize=1)
-    def _get_raw_mean_tensor_for_VBEM(self, current_iter):
-        raw_tensor = self.first_parent._get_mean_tensor_for_VBEM(self, current_iter)
-        return raw_tensor
+        self.tensor_update = glob.xp.zeros_like(self.tensor)
 
     def _check_filiation_ok(self, child=None, parent=None, **kwargs):
         if child is not None:
@@ -120,7 +116,7 @@ class Multiplier(_Operator):
     Class of multiplier operator.
 
     Must have two and only two parents. Inner tensor is the multiplication of
-    its parent's tensor. It can also be used to convoluate its parent's tensor
+    its parent's tensor. It can also be used to convolve its parent's tensor
     when the attribute 'conv_idx_ids' is provided (cf __init__ doctstring). The
     way the two parent's tensor are multiplied or convolved is automatically
     computed according the index IDs of all involved tensors. Only 'valid' mode
@@ -167,23 +163,6 @@ class Multiplier(_Operator):
         utils.einconv(
             *input_einconv, out=self.tensor[...], conv_idx_list=self.conv_idx_ids
         )
-
-    @lru_cache(maxsize=1)
-    def _get_raw_mean_tensor_for_VBEM(self, current_iter):
-        input_einconv = [
-            elem
-            for node in self.list_of_parents
-            for elem in [
-                node._get_mean_tensor_for_VBEM(self, current_iter),
-                node.get_index_id_for_children(self),
-            ]
-        ] + [self.index_id]
-
-        raw_tensor = np.zeros_like(self.tensor)
-        utils.einconv(
-            *input_einconv, conv_idx_list=self.conv_idx_ids, out=raw_tensor[...]
-        )
-        return raw_tensor
 
     def _bump(self, **kwargs):
         self._update_tensor()
@@ -343,6 +322,26 @@ class Multiplier(_Operator):
                     "Model is wrong at {} level. An index_id should be "
                     "normalized before marginalization".format(self)
                 )
+
+    def _total_energy_leak(self):
+        if not self.conv_idx_ids:
+            return super()._total_energy_leak()
+        # to compute energy leak for convolver operator, ones compute the total
+        # energy we would have if "full" convolution were performed minus
+        # total energy of the "valid" convolution result
+        einsum_arg = []
+        for parent in self.list_of_parents:
+            index_id = tuple(parent.get_index_id_for_children(self))
+            index_id_final = tuple(
+                idx for idx in index_id if idx not in self.conv_idx_ids
+            )
+            tensor = parent.get_tensor_for_children(self)
+            einsum_arg.append(utils.einsum(tensor, index_id, index_id_final))
+            einsum_arg.append(index_id_final)
+        total_parents_energy = utils.einsum(*einsum_arg, ())
+
+        energy_diff = (total_parents_energy - self.tensor.sum()).item()
+        return energy_diff + super()._total_energy_leak()
 
 
 class Multiplexer(_Operator):
@@ -506,17 +505,6 @@ class Multiplexer(_Operator):
                 "existing axis, all parents' tensor should have energy."
             )
 
-    @lru_cache(maxsize=1)
-    def _get_raw_mean_tensor_for_VBEM(self, current_iter):
-        raw_tensor = glob.xp.zeros_like(self.tensor)
-        for parent in self.list_of_parents:
-            parent_tensor = parent._get_mean_tensor_for_VBEM(self, current_iter)
-            self_shape = raw_tensor[self.parent_slicing_dict[parent]].shape
-            raw_tensor[self.parent_slicing_dict[parent]] = parent_tensor.reshape(
-                self_shape
-            )
-        return raw_tensor
-
 
 class Integrator(_Operator):
     """
@@ -554,19 +542,6 @@ class Integrator(_Operator):
         utils.cumsum_last_axis(
             parent_tensor[..., ::direction], self.tensor[..., ::direction]
         )
-
-    @lru_cache(maxsize=1)
-    def _get_raw_mean_tensor_for_VBEM(self, current_iter):
-        parent_tensor = (
-            self.first_parent._get_mean_tensor_for_VBEM(self, current_iter)
-            * self._normalization_coef
-        )
-        direction = -1 if self.backward_integration else 1
-        raw_tensor = glob.xp.zeros_like(self.tensor)
-        utils.cumsum_last_axis(
-            parent_tensor[..., ::direction], raw_tensor[..., ::direction]
-        )
-        return raw_tensor
 
     def _give_update(self, parent, out=None):
         direction = 1 if self.backward_integration else -1
@@ -633,16 +608,6 @@ class Adder(_Operator):
             if not glob.xp.may_share_memory(tensor, self.tensor):
                 raise ValueError("something is wrong in the reslicing and reshaping")
             tensor += parent.get_tensor_for_children(self)
-
-    @lru_cache(maxsize=1)
-    def _get_raw_mean_tensor_for_VBEM(self, current_iter):
-        raw_tensor = glob.xp.zeros_like(self.tensor)
-        for parent in self.list_of_parents:
-            tensor = self.apply_slice_and_shape(raw_tensor, parent)
-            if not glob.xp.may_share_memory(tensor, raw_tensor):
-                raise ValueError("something is wrong in the reslicing and reshaping")
-            tensor += parent._get_mean_tensor_for_VBEM(self, current_iter)
-        return raw_tensor
 
     def _give_update(self, parent, out=None):
         update = self.apply_slice_and_shape(self.tensor_update, parent)

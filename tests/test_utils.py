@@ -118,6 +118,24 @@ def test_has_a_shared_sublist():
     )
 
 
+def test_get_transpose_and_slice():
+    sub1, sub2, sub_out = "ij", "jkl", "kilj"
+    transpose1, slice1 = utils.get_transpose_and_slice(sub1, sub_out)
+    transpose2, slice2 = utils.get_transpose_and_slice(sub2, sub_out)
+    assert transpose1 == (0, 1)
+    assert transpose2 == (1, 2, 0)
+    assert slice1 == (None, slice(None), None, slice(None))
+    assert slice2 == (slice(None), None, slice(None), slice(None))
+
+
+def test_supscript_summation(xp):
+    sub1, sub2, sub_out = "ij", "jkl", "kilj"
+    op1 = xp.arange(3 * 5).reshape((3, 5))
+    op2 = xp.arange(5 * 2 * 4).reshape((5, 2, 4))
+    res = utils.supscript_summation(op1, sub1, op2, sub2, sub_out)
+    assert xp.allclose(res, op1[:, None] + op2.transpose((1, 2, 0))[:, None])
+
+
 def test_parse_einsum_args():
     args1 = ("fd,dt,d->ft", 1, 2, 3)
     args2 = (1, "fd", 2, "dt", 3, "d", "ft")
@@ -612,6 +630,18 @@ def test_explicit_slice():
     assert utils.explicit_slice(Ellipsis, 0) == Ellipsis
     assert utils.explicit_slice(slice(None), 1) == (slice(None),)
 
+    mask = np.array([[True, False], [False, True]])
+    list_of_input = [
+        mask,
+        (mask, slice(None)),
+        (mask, Ellipsis),
+    ]
+    for sl in list_of_input:
+        explicit_sl = utils.explicit_slice(sl, ndim)
+        assert len(explicit_sl) == ndim - 1
+        assert np.alltrue(explicit_sl[0] == mask)
+        assert explicit_sl[1:] == (slice(None),) * (ndim - 2)
+
 
 def test_real_to_2D_nonnegative():
     arr = np.array([[1, -1, 2], [-3, 3.2, 0]])
@@ -657,3 +687,19 @@ def test_clip_inplace(xp):
     arr_out = arr_init.copy()
     utils.clip_inplace(arr_out, a_min=3.5, a_max=3.8)
     assert (arr_out == xp.array([3.5, 3.8])).all()
+
+
+def test_inverse_gamma(xp):
+    if xp == np:
+        from scipy.special import digamma
+    elif xp == cp:
+        from cupyx.scipy.special import digamma  # pylint: disable=import-error
+    input_arr_pos = xp.array([1.0, 2.0, 3.443])
+    assert xp.allclose(utils.inverse_digamma(digamma(input_arr_pos)), input_arr_pos)
+    assert xp.allclose(digamma(utils.inverse_digamma(input_arr_pos)), input_arr_pos)
+    input_arr_neg = xp.array([-1.0, -2.0, -3.443])
+    assert xp.allclose(digamma(utils.inverse_digamma(input_arr_neg)), input_arr_neg)
+
+    output_arr = xp.zeros_like(input_arr_pos)
+    utils.inverse_digamma(input_arr_pos, out=output_arr)
+    assert xp.allclose(utils.inverse_digamma(input_arr_pos), output_arr)

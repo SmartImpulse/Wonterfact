@@ -30,6 +30,7 @@ import pytest
 
 # wonterfact imports
 import wonterfact as wtf
+from wonterfact import buds
 
 # relative imports
 from . import utils as t_utils
@@ -184,24 +185,36 @@ def test_filiation(tree):
 
 
 def test_level(tree):
-    assert tree.leaf_energy.level == 0
-    assert tree.leaf_energy.level == 0
-    assert tree.mult_ktsc.level == 3
-    assert tree.obs_tf_2.level == 3
-    assert tree.obs_tf.level == 6
-    assert tree.root.level == 7
+    assert tree.leaf_energy_rate.level == 0
+    assert tree.leaf_energy_shape.level == 0
+    assert tree.leaf_energy.level == 1
+    assert tree.leaf_energy.level == 1
+    assert tree.mult_ktsc.level == 4
+    assert tree.obs_tf_2.level == 4
+    assert tree.obs_tf.level == 7
+    assert tree.root.level == 8
 
 
 def test_census(tree):
     all_nodes = set(
         [
             tree.leaf_energy,
+            tree.leaf_energy_rate,
+            tree.leaf_energy_shape,
             tree.leaf_k,
+            tree.leaf_k_shape,
             tree.leaf_k_1,
+            tree.leaf_k_1_rate,
+            tree.leaf_k_1_shape,
             tree.leaf_kf,
+            tree.leaf_kf_shape,
             tree.leaf_kt,
+            tree.leaf_kt_shape,
             tree.leaf_kts_0,
+            tree.leaf_kts_0_shape,
             tree.leaf_kts_1,
+            tree.leaf_kts_1_rate,
+            tree.leaf_kts_1_shape,
             tree.leaf_c,
             tree.mul_k,
             tree.mul_kts,
@@ -238,7 +251,15 @@ def test_message_passing(tree):
 
     all_nodes = tree.root.census()
     all_nodes_that_always_update = all_nodes.difference(
-        set([tree.leaf_c, tree.leaf_kf, tree.leaf_kt])
+        set(
+            [
+                tree.leaf_c,
+                tree.leaf_kf,
+                tree.leaf_kf_shape,
+                tree.leaf_kt,
+                tree.leaf_kt_shape,
+            ]
+        )
     )
     set_foo(None)
     assert all(node.foo == None for node in all_nodes)
@@ -247,24 +268,32 @@ def test_message_passing(tree):
     assert all(node.foo == 0 for node in all_nodes_that_always_update)
     assert tree.leaf_c.foo is None
     assert tree.leaf_kf.foo == 0
+    assert tree.leaf_kf_shape.foo == 0
     assert tree.leaf_kt.foo is None
+    assert tree.leaf_kt_shape.foo is None
     set_foo(1)
     assert all(node.foo == 1 for node in all_nodes_that_always_update)
     assert tree.leaf_c.foo is None
     assert tree.leaf_kf.foo == 1
+    assert tree.leaf_kf_shape.foo == 1
     assert tree.leaf_kt.foo is None
+    assert tree.leaf_kt_shape.foo is None
 
     set_foo(2)
     assert all(node.foo == 2 for node in all_nodes_that_always_update)
     assert tree.leaf_c.foo is None
     assert tree.leaf_kf.foo == 1
+    assert tree.leaf_kf_shape.foo == 1
     assert tree.leaf_kt.foo == 2
+    assert tree.leaf_kt_shape.foo == 2
 
     set_foo(3)
     assert all(node.foo == 3 for node in all_nodes_that_always_update)
     assert tree.leaf_c.foo is None
     assert tree.leaf_kf.foo == 3
+    assert tree.leaf_kf_shape.foo == 3
     assert tree.leaf_kt.foo == 2
+    assert tree.leaf_kt_shape.foo == 2
     # pylint: enable=no-member
 
 
@@ -312,7 +341,10 @@ def test_compute_tensor_update(tree):
         "_initialization", mode="top-down",
     )
     tree.root.tree_traversal(
-        "compute_tensor_update", mode="bottom-up", iteration_number=0
+        "compute_tensor_update",
+        mode="bottom-up",
+        iteration_number=0,
+        type_filter_list=[buds._Bud,],
     )
 
     assert wtf.glob.xp.allclose(

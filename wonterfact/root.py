@@ -25,7 +25,8 @@ from functools import cached_property
 
 # Relative imports
 from .glob_var_manager import glob
-from .core_nodes import _ChildNode
+from .core_nodes import _ChildNode, _DynNodeData
+from . import buds
 from . import graphviz
 
 # Third-party imports
@@ -163,7 +164,12 @@ class Root(_ChildNode):
         }
 
     def tree_traversal(
-        self, method_name, mode, method_input=None, iteration_number=None
+        self,
+        method_name,
+        mode,
+        method_input=None,
+        iteration_number=None,
+        type_filter_list=None,
     ):
         """
         Calls a given method for all the nodes of the tree.
@@ -181,8 +187,12 @@ class Root(_ChildNode):
             Iteration number that is given to the nodes so they can decide to
             call the given method or not (see ``update_period``, ``update_succ``
             and ``update_offset`` in Nodes docstring)
+        type_filter_list : sequence or None, optional, default None
+            list of classes for which the method should not be called, e.g.
+            [wonterfact.buds._Bud, ]
         """
         method_input = method_input or ((), {})
+        type_filter_list = type_filter_list or []
         if mode == "top-down":
             level_iter = range(0, self.level + 1)
         elif mode == "bottom-up":
@@ -190,11 +200,17 @@ class Root(_ChildNode):
         for level in level_iter:
             for node in self.nodes_by_level[level]:
                 self._apply_method_to_node(
-                    node, method_name, method_input, iteration_number
+                    node, method_name, method_input, iteration_number, type_filter_list
                 )
 
-    def _apply_method_to_node(self, node, method_name, method_input, iteration_number):
-        if hasattr(node, method_name) and node.should_update(iteration_number):
+    def _apply_method_to_node(
+        self, node, method_name, method_input, iteration_number, type_filter_list
+    ):
+        if (
+            hasattr(node, method_name)
+            and not any(isinstance(node, elem) for elem in type_filter_list)
+            and node.should_update(iteration_number)
+        ):
             try:
                 node.__getattribute__(method_name)(*method_input[0], **method_input[1])
             except Exception as exception:
@@ -323,6 +339,7 @@ class Root(_ChildNode):
                 mode="top-down",
                 method_input=((), {"update_type": "no_update_for_leaves"}),
                 iteration_number=self.current_iter,
+                type_filter_list=[buds._Bud,],
             )
             self.logger.info("Parameter estimation stopped by user.")
 
@@ -338,17 +355,14 @@ class Root(_ChildNode):
             "compute_tensor_update",
             mode="bottom-up",
             iteration_number=self.current_iter,
+            type_filter_list=[buds._Bud,],
         )
         self.tree_traversal(
-            "_update_tensor", mode="top-down", iteration_number=self.current_iter
+            "_update_tensor",
+            mode="top-down",
+            iteration_number=self.current_iter,
+            type_filter_list=[buds._Bud,],
         )
-        if self.inference_mode == "VBEM":
-            #  TODO: also update prior_rate
-            self.tree_traversal(
-                "_prior_alpha_update",
-                mode="bottom-up",
-                iteration_number=self.current_iter,
-            )
 
     def _draw_need_a_dump(self, num_iter):
         ran = np.random.rand()
@@ -366,6 +380,7 @@ class Root(_ChildNode):
             mode="top-down",
             method_input=((), method_kwarg),
             iteration_number=self.current_iter,
+            type_filter_list=[buds._Bud,],
         )
         data_fitting = self._get_data_fitting()
         contraints_fitting = self._get_total_contraints_fitting()
@@ -377,7 +392,10 @@ class Root(_ChildNode):
     def _make_one_parabolic_step_aux1(self):
         self._make_one_step()
         self.tree_traversal(
-            "_update_past_tensors", mode="top-down", iteration_number=self.current_iter
+            "_update_past_tensors",
+            mode="top-down",
+            iteration_number=self.current_iter,
+            type_filter_list=[buds._Bud,],
         )
         if self.current_iter == self.acceleration_start_iter + 2:
             self.parab_acc_state["current_cost"] = self.get_cost_func()
@@ -394,6 +412,7 @@ class Root(_ChildNode):
                 "_update_past_tensors",
                 mode="top-down",
                 iteration_number=self.current_iter,
+                type_filter_list=[buds._Bud,],
             )
             current_cost = self.get_cost_func()
             self.parab_acc_state["current_cost"] = current_cost
@@ -499,6 +518,7 @@ class Root(_ChildNode):
                             mode="top-down",
                             method_input=((), method_kwarg),
                             iteration_number=self.current_iter,
+                            type_filter_list=[buds._Bud,],
                         )
                     self.parab_acc_state["step_distrib"][
                         self.parab_acc_state["last_best_step"]
@@ -537,7 +557,10 @@ class Root(_ChildNode):
     def _launch_bump(self):
         self.logger.info("Launching annealing")
         self.tree_traversal(
-            "_bump", mode="top-down", iteration_number=self.current_iter
+            "_bump",
+            mode="top-down",
+            iteration_number=self.current_iter,
+            type_filter_list=[buds._Bud,],
         )
         if self.update_type == "parabolic":
             # self.acceleration_start_iter = self.current_iter
@@ -545,6 +568,26 @@ class Root(_ChildNode):
                 {"standard_update": True, "consec_std_update": 0}
             )
         self.need_a_bump = False
+
+    def estimate_hyperparam(self, n_iter, counter_max=0):
+        if self.inference_mode == "EM":
+            raise ValueError("hyperparameters cannot be estimated in EM mode")
+        # first compute tensor update
+        for bud in self.nodes_by_level[0]:
+            bud.compute_tensor_update_online(counter_max=counter_max)
+        for __ in range(n_iter):
+            for bud in self.nodes_by_level[0]:
+                if isinstance(bud, buds.BudShape) and bud.update_period != 0:
+                    bud.update_tensor()
+            for bud in self.nodes_by_level[0]:
+                if isinstance(bud, buds.BudRate) and bud.update_period != 0:
+                    bud.update_tensor()
+        # empty cache because hyperparameters have changed
+        for leaf in self.nodes_by_level[1]:
+            try:
+                del leaf._cst_prior_value
+            except:
+                pass
 
     def _record_cost_values(
         self, data_fitting=None, contraints_fitting=None, time_val=None
@@ -564,13 +607,22 @@ class Root(_ChildNode):
         """
         Compute minus the sum of all leaves prior values
         """
-        return -sum([leaf._prior_value() for leaf in self.nodes_by_level[0]])
+        return -sum([leaf._prior_value() for leaf in self.nodes_by_level[1]])
 
     def _get_data_fitting(self):
         parent_fit = 0
         for parent in self.list_of_parents:
             parent_fit += parent._get_data_fitting()
+        if self.inference_mode == "VBEM":
+            parent_fit -= self._get_total_energy_leak()
         return parent_fit
+
+    def _get_total_energy_leak(self):
+        return sum(
+            parent._total_energy_leak()
+            for parent in self.census()
+            if isinstance(parent, _DynNodeData)
+        )
 
     def get_cost_func(self):
         """

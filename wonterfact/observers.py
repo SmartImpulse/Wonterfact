@@ -87,7 +87,7 @@ class _Observer(
 
     @cached_property
     def is_tensor_null(self):
-        return (self.tensor == 0).astype(glob.float)
+        return (self.tensor == 0).astype(self.tensor.dtype)
 
     @cached_property
     def is_tensor_pos(self):
@@ -167,7 +167,7 @@ class PosObserver(_Observer):
             kl_div -= utils.xlogy(my_tensor, reconstruction).sum()
             kl_div += reconstruction.sum()
             kl_div -= my_tensor.sum() - utils.xlogy(my_tensor, my_tensor).sum()
-        return float(kl_div)
+        return kl_div.item()
 
     def _get_data_fitting(self):
         """
@@ -180,14 +180,19 @@ class PosObserver(_Observer):
             if self._inference_mode == "EM":
                 lh -= parent_tensor
             elif self._inference_mode == "VBEM":
-                lh -= parent._get_mean_tensor_for_VBEM(
-                    self, self.first_child.current_iter
-                )
+                pass
+                # this part is canceled with the gamma leaves prior values
+                # and therefore, method "_get_mean_tensor_for_VBEM" has been
+                # removed (check v2.1.2 to get it back)
+                # lh -= parent._get_mean_tensor_for_VBEM(self)
             lh += utils.xlogy(my_tensor, parent_tensor)
             lh -= glob.sps.gammaln(my_tensor + 1)
         if self.mask_data is not None:
-            lh[self.mask_data] = 0
-        return -float(lh.sum())
+            if self._inference_mode == "EM":
+                lh[self.mask_data] = 0
+            elif self._inference_mode == "VBEM":
+                lh[self.mask_data] = parent_tensor[self.mask_data]
+        return -lh.sum().item()
 
 
 class RealObserver(_Observer):
@@ -239,9 +244,11 @@ class RealObserver(_Observer):
             if self._inference_mode == "EM":
                 lh -= parent_tensor.sum(-1)
             elif self._inference_mode == "VBEM":
-                lh -= parent._get_mean_tensor_for_VBEM(
-                    self, self.first_child.current_iter
-                ).sum(-1)
+                pass
+                # this part is canceled with the gamma leaves prior values
+                # and therefore, method "_get_mean_tensor_for_VBEM" has been
+                # removed (check v2.1.2 to get it back)
+                # lh -= parent._get_mean_tensor_for_VBEM(self).sum(-1)
             abs_tensor = mult_fact * self.abs_tensor
             inside_log = (
                 parent_tensor[..., 0] * self.is_tensor_pos
@@ -262,8 +269,11 @@ class RealObserver(_Observer):
                     abs_tensor, (abs_tensor + temp_calculus + self.is_tensor_null) / 2
                 )
         if self.mask_data is not None:
-            lh[self.mask_data] = 0
-        return -float(lh.sum())
+            if self._inference_mode == "EM":
+                lh[self.mask_data] = 0
+            elif self._inference_mode == "VBEM":
+                lh[self.mask_data] = parent_tensor[self.mask_data, :].sum(-1)
+        return -lh.sum().item()
 
     def temp_calculus(self, parent):
         parent_tensor = parent.get_tensor_for_children(self)
@@ -340,6 +350,11 @@ class BlindObs(core_nodes._ChildNode, core_nodes._ParentNode):
 
         return out
 
-    @staticmethod
-    def _get_data_fitting():
-        return 0
+    def _get_data_fitting(self):
+        if self._inference_mode == "EM":
+            return 0
+        elif self._inference_mode == "VBEM":
+            total_energy = 0
+            for parent in self.list_of_parents:
+                total_energy += parent.get_tensor_for_children(self).sum()
+            return -total_energy.item()

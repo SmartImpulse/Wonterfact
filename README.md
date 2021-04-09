@@ -14,13 +14,13 @@ This project has been initiated from 2015 to 2019 by Benoit Fuentes as a researc
  - Smooth constraints can be added to factors via prior distributions.
  - Hard linear equality or inequality constraints can be applied on factor tensors.
  - Two inference algorithms have been implemented: the Expectation-Maximization (EM) algorithm to find the posterior maximum of the parameters or the Variational Bayes EM (VBEM) algorithm to find an approximation of the posterior distributions of the parameters.
- - In VBEM mode, hyperparameters of the prior distributions can also be inferred (feature not available yet, to come soon).
+ - In VBEM mode, hyperparameters of the prior distributions can also be inferred.
  - In VBEM mode, wonterfact is a generalization of Latent Dirichlet Allocation (LDA).
  - Possibility to use cpu or gpu backend.
 
 
 ## References
-For the moment, no article has been published yet to introduce this package and describe theoretical background on which it relies. Such an article should be published during the year 2021.
+For the moment, no article has been published yet to introduce this package and describe theoretical background on which it relies. Such an article should be published during the year 2021. Meanwhile, you can check on the [technical report](https://www.benoit-fuentes.fr/downloads/Wonterfact_technical_report.pdf) (beware this is work in progress) if you're interested in the theory.
 
 
 ## Installation
@@ -70,7 +70,8 @@ Finally, all intermediate operations should be expressed, so that multiplication
 
 Before implementing the model with wonterfact, it is recommended to draw the tree of tensor operations. In this tree, *leaves* (i.e. nodes with no parents) correspond to the factors of the model, level 1 nodes, called *observers* are the tensors to be decomposed, the single *root* (level 0) is used to identify the whole tree and all other inner nodes, called *operators* correspond to tensors resulting from a specific operation of their parents nodes. The graphical representation of our current NMF model is as follow.
 
-<img src="images/nmf_tree.png" width="200">
+<img src="images/nmf_tree.svg" width="200">
+
 
 Nodes label correspond to the indexes of the tensors. Indexes are underlined to represent tensor not subject to normalization constraints (like <img src="https://render.githubusercontent.com/render/math?math=\lambda_{kt}">), and not underlined if they corresponds to normalized tensors such as <img src="https://render.githubusercontent.com/render/math?math=\theta_{f\mid k}">).
 
@@ -149,7 +150,7 @@ leaf_kf.new_child(multiplier)
 
 This is it, the NMF model is now instantiated. You can check if the tree of operations corresponds to the one you draw yourself (this is how we actually generated the figure in previous section):
 ```python
-my_tree.draw_tree(show_node_names=True, filename='nmf_tree.pdf')
+my_tree.draw_tree(show_node_names=True, filename='nmf_tree.svg')
 ```
 
 You can use name you gave to each node (provided that each name is unique) to access to a particular node:
