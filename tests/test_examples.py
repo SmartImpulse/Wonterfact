@@ -25,15 +25,22 @@ from itertools import product
 # Third-party imports
 import pytest
 import numpy as np
+import numpy.random as npr
 
 # wonterfact and relative imports
 from wonterfact import glob, LeafGammaNorm
+from wonterfact import utils as wtfu
 from wonterfact.examples import snmf
 from wonterfact.examples import nmf
 from wonterfact.examples import conv_nmf
 
 # relative imports
 from . import utils as t_utils
+
+# args for make_snmf
+data = 100 * npr.randn(10, 5)
+atoms_nonneg_init = npr.rand(3, 5, 2)
+activations_init = np.ones((10, 3))
 
 
 list_of_tree_makers_tuple = [
@@ -43,11 +50,15 @@ list_of_tree_makers_tuple = [
     (nmf.make_sparse_nmf, (), {}),
     (nmf.make_sparse_nmf2, (), {}),
     (nmf.make_sparse_nmf3, (), {}),
-    (snmf.make_snmf, (), {"fix_atoms": True}),
-    (snmf.make_snmf, (), {"fix_atoms": False}),
+    (snmf.make_snmf, (data, atoms_nonneg_init, activations_init), {"fix_atoms": True}),
+    (snmf.make_snmf, (data, atoms_nonneg_init, activations_init), {"fix_atoms": False}),
     (snmf.make_cluster_snmf, (), {}),
     (snmf.make_cluster_snmf2, (), {}),
     (conv_nmf.make_deconv_tree, (), {}),
+]
+# let us add unique_id to the tuples
+list_of_tree_makers_tuple = [
+    elem + (num,) for num, elem in enumerate(list_of_tree_makers_tuple)
 ]
 
 
@@ -71,7 +82,7 @@ def test_example(
 ):
     glob.set_backend_processor(backend, force=True)
     np.random.seed(0)
-    tree_maker, args, kwargs = tree_maker_tuple
+    tree_maker, args, kwargs, unique_id = tree_maker_tuple
     tree = tree_maker(*args, **kwargs)
     t_utils._setup_tree_for_decreasing_cost(
         tree,
@@ -80,9 +91,7 @@ def test_example(
         limit_skellam=limit_skellam,
     )
     if inference_mode == "VBEM":
-        if update_type == "parabolic" or any(
-            type(node) == LeafGammaNorm for node in tree.census()
-        ):
+        if any(type(node) == LeafGammaNorm for node in tree.census()):
             with pytest.raises(NotImplementedError):
                 tree.estimate_param(n_iter=100)
             return
@@ -94,9 +103,7 @@ def test_example(
     assert t_utils._assert_cost_decrease(tree)
     assert t_utils._assert_graphviz_ok(tree)
     base_key = (
-        tree_maker,
-        tuple(args),
-        frozenset(kwargs.items()),
+        unique_id,
         inference_mode,
         update_type,
         limit_skellam,

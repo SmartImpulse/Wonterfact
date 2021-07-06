@@ -45,9 +45,9 @@ def make_nmf(fix_atoms=False):
         name="atoms",
         index_id="kf",
         norm_axis=(1,),
-        tensor=atoms_kf,
+        tensor=atoms_kf if fix_atoms else wtfu.normalize(npr.rand(dim_k, dim_f), (1,)),
         update_period=0 if fix_atoms else 1,
-        prior_shape=1 if fix_atoms else 1 + 1e-5 * npr.rand(dim_k, dim_f),
+        prior_shape=1,
     )
     leaf_tk = wtf.LeafGamma(
         name="activations",
@@ -86,9 +86,8 @@ def _aux_smooth_activation_nmf():
         name="atoms",
         index_id="kf",
         norm_axis=(1,),
-        tensor=atoms_kf,
-        update_period=1,
-        prior_shape=1 + 1e-5 * npr.rand(dim_k, dim_f),
+        tensor=wtfu.normalize(npr.rand(dim_k, dim_f), (1,)),
+        prior_shape=1,
     )
 
     leaf_kt = wtf.LeafGamma(
@@ -102,7 +101,7 @@ def _aux_smooth_activation_nmf():
         name="spreading",
         index_id="ktw",
         norm_axis=(2,),
-        tensor=np.ones((dim_k, dim_t + dim_w - 1, dim_w)),
+        tensor=np.ones((dim_k, dim_t + dim_w - 1, dim_w)) / dim_w,
         prior_shape=10,
     )
     mul_kwt = wtf.Multiplier(name="mul_kwt", index_id="kwt")
@@ -131,7 +130,12 @@ def make_smooth_activation_nmf():
     )
     mul_tk = wtf.Multiplier(name="activations", index_id="tk")
     shape = (dim_k, dim_w, dim_t + dim_w - 1)
-    strides_for_child = ([8,] + list(np.cumprod(shape[:0:-1]) * 8))[::-1]
+    strides_for_child = (
+        [
+            8,
+        ]
+        + list(np.cumprod(shape[:0:-1]) * 8)
+    )[::-1]
     strides_for_child[-2] += 8
     mul_kwt.new_child(
         mul_tk,
@@ -201,7 +205,7 @@ def make_sparse_nmf(prior_rate=0.001, obs=None, atoms=None):
         name="activations",
         index_id="tk",
         norm_axis=(1,),
-        tensor=np.ones((dim_t, dim_k)),
+        tensor=np.ones((dim_t, dim_k)) / dim_k,
         prior_shape=1,
     )
 
@@ -212,7 +216,7 @@ def make_sparse_nmf(prior_rate=0.001, obs=None, atoms=None):
     leaf_tk.new_child(mul_tkl, index_id_for_child="tl")
     mul_tk.new_child(mul_tkl)
     if atoms is None:
-        atoms = np.ones((dim_k, dim_f))
+        atoms = np.ones((dim_k, dim_f)) / dim_f
         update_period = 1
     else:
         update_period = 0
@@ -221,7 +225,7 @@ def make_sparse_nmf(prior_rate=0.001, obs=None, atoms=None):
         index_id="kf",
         norm_axis=(1,),
         tensor=atoms,
-        prior_shape=1 + 1e-4 * npr.rand(dim_k, dim_f),
+        prior_shape=1,
         update_period=update_period,
     )
     mul_tf = wtf.Multiplier(name="reconstruction", index_id="tf")
@@ -271,7 +275,7 @@ def make_sparse_nmf2(prior_rate=0.001, obs=None):
         name="activations",
         index_id="kt",
         norm_axis=(1,),
-        tensor=np.ones((dim_k, dim_t)),
+        tensor=np.ones((dim_k, dim_t)) / dim_t,
         prior_shape=1,
     )
 
@@ -312,8 +316,8 @@ def make_sparse_nmf3(prior_rate=0.001, obs=None):
         name="atoms_init",
         index_id="kf",
         norm_axis=(1,),
-        tensor=np.ones((dim_k, dim_f)),
-        prior_shape=1 + 1e-4 * npr.rand(dim_k, dim_f),
+        tensor=wtfu.normalize(npr.rand(dim_k, dim_f), (1,)),
+        prior_shape=1,
     )
     mul_kf = wtf.Multiplier(index_id="kf")
     mul_kf.new_parents(leaf_kf, leaf_k)
@@ -394,7 +398,7 @@ def make_sparse_nmf3(prior_rate=0.001, obs=None):
         name="activations",
         index_id="kt",
         norm_axis=(1,),
-        tensor=np.ones((dim_k, dim_t)),
+        tensor=np.ones((dim_k, dim_t)) / dim_t,
         prior_shape=1,
     )
 

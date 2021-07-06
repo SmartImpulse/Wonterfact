@@ -31,39 +31,106 @@ import wonterfact as wtf
 import wonterfact.utils as wtfu
 
 
-def make_snmf(fix_atoms=False):
-    dim_k, dim_f, dim_t = 5, 20, 100
+def make_snmf(
+    data,
+    atoms_nonneg_init,
+    activations_init,
+    fix_atoms=False,
+    atoms_shape_prior=1,
+    activations_shape_prior=1,
+    activations_rate_prior=0.001,
+    inference_mode="EM",
+    integer_data=False,
+):
+    """
+    This return a wonterfact tree corresponding to the Skellam-SNMF algorithm.
 
-    atoms_kf = npr.choice([-1, 1], size=[dim_k, dim_f]) * npr.dirichlet(
-        np.ones(dim_f) * 0.9, size=dim_k
+    Parameters
+    ----------
+    data: array_like of shape [J x I]
+        Real-valued input array to factorize
+    atoms_nonneg_init: array_like of shape [K x I x 2]
+        Initialization for nonnegative atoms tensor
+    activations_init: array_like of shape [J x K]
+        Initialization for activations matrix
+    fix_atoms: bool, default False
+        Whether atoms should be updated or left to initial value
+    atoms_shape_prior: array_like or float
+        Shape hyperparameters for atoms (`atoms_shape_prior + atoms_nonneg_init`)
+        should raise no Error
+    activations_shape_prior: array_like or float
+        Shape hyperparameters for activations (`activations_shape_prior + activations_init`)
+        should raise no Error
+    activations_rate_prior: array_like or float
+        Shape hyperparameters for atoms (`activations_rate_prior + activations_init`)
+        should raise no Error.
+    inference_mode: 'EM' or 'VBEM', default 'EM'
+        Algorithm that should be used to infer parameters
+    integer_data: bool, default False
+        Whether data are integers or real numbers. If True, Skellam-SNMF is
+        performed with :math: `M=1`, otherwise with :math: `M=\\infty` (see [1])
+
+    Returns
+    -------
+    wonterfact.Root
+        root of the wonterfact tree
+
+    Notes
+    ------
+    Allows to solve the following problem
+    .. math::
+        X_{ji} \\approx \\sum_{k} \\lambda_{jk} * W_{ki} \\textrm{with}\\
+        W_{ki} = \\theta_{ki, s=0} - \\theta_{ki, s=1}
+    Beware that axis are reversed compared to the model in [1]. This due to the
+    terms of use of wonterfact.
+
+    References
+    ----------
+    ..[1] B.Fuentes et. al., Probabilistic semi-nonnegative matrix factorization:
+    a Skellam-based framework, 2021
+
+    """
+    ### creation of atoms leaf
+    # to be sure atoms are well normalized
+    atoms_nonneg_init /= atoms_nonneg_init.sum(axis=(1, 2), keepdims=True)
+    leaf_kis = wtf.LeafDirichlet(
+        name="atoms",  # name of the node
+        index_id="kis",  # name of the axis
+        norm_axis=(1, 2),  # normalization axis
+        tensor=atoms_nonneg_init,  # instantiation of leaf's tensor
+        init_type="custom",  # to be sure value of `tensor` is kept as initialization
+        update_period=0 if fix_atoms else 1,  # whether atoms should be updated or not
+        prior_shape=atoms_shape_prior,  # shape hyperparameters
     )
-
-    activations_tk = npr.gamma(shape=0.6, scale=200, size=(dim_t, dim_k))
-
-    observations_tf = np.einsum("tk,kf->tf", activations_tk, atoms_kf)
-    observations_tf += npr.randn(dim_t, dim_f) * 1e-4
-
-    leaf_kfs = wtf.LeafDirichlet(
-        name="atoms",
-        index_id="kfs",
-        norm_axis=(1, 2),
-        tensor=wtf.utils.real_to_2D_nonnegative(atoms_kf),
-        update_period=0 if fix_atoms else 1,
-        prior_shape=1 if fix_atoms else 1 + 1e-5 * npr.rand(dim_k, dim_f, 2),
+    ### creation of activations leaf
+    leaf_jk = wtf.LeafGamma(
+        name="activations",  # name of the node
+        index_id="jk",  # name of the axis
+        tensor=activations_init,  # instantiation of leaf's tensor
+        init_type="custom",  # to be sure value of `tensor` is kept as initialization
+        prior_rate=activations_rate_prior,  # rate hyperparameters
+        prior_shape=activations_shape_prior,  # shape hyperparameters
     )
-    leaf_tk = wtf.LeafGamma(
-        name="activations",
-        index_id="tk",
-        tensor=np.ones_like(activations_tk),
-        prior_rate=1e-4,
-    )
-    mul_tfs = wtf.Multiplier(name="multiplier", index_id="tfs")
-    mul_tfs.new_parents(leaf_kfs, leaf_tk)
-    obs_tf = wtf.RealObserver(name="observer", index_id="tf", tensor=observations_tf)
-    mul_tfs.new_child(obs_tf)
-    root = wtf.Root()
-    obs_tf.new_child(root)
+    ### resulting skellam parameters for observed data data
+    mul_jis = wtf.Multiplier(name="multiplier", index_id="jis")
+    mul_jis.new_parents(leaf_kis, leaf_jk)  # creation of filiations
 
+    ### observed real-valued data
+    obs_ji = wtf.RealObserver(
+        name="observer",
+        index_id="ji",
+        tensor=data,
+        limit_skellam_update=not integer_data,  # whether data are considered as integers
+    )
+    mul_jis.new_child(obs_ji)  # filiation between data and model parameters
+
+    ### creation or the root
+    root = wtf.Root(
+        inference_mode=inference_mode,
+        stop_estim_threshold=1e-7,
+        cost_computation_iter=50,
+    )
+    obs_ji.new_child(root)
     return root
 
 
@@ -87,8 +154,7 @@ def make_cluster_snmf():
 
     dim_q = 10
 
-    tensor_dfs = wtfu.real_to_2D_nonnegative(tensor_df)
-    tensor_dfs /= tensor_dfs.sum(axis=(1, 2), keepdims=True)
+    tensor_dfs = wtfu.normalize(wtfu.real_to_2D_nonnegative(tensor_df), (1, 2))
     leaf_dfs = wtf.LeafDirichlet(
         name="samples",
         index_id="dfs",
@@ -97,7 +163,7 @@ def make_cluster_snmf():
         update_period=0,
     )
 
-    tensor_qd = np.ones((dim_q, dim_d))
+    tensor_qd = np.ones((dim_q, dim_d)) / dim_d
     leaf_qd = wtf.LeafDirichlet(
         name="samples_by_class",
         index_id="qd",
@@ -162,8 +228,7 @@ def make_cluster_snmf2(nb_cluster=4, prior_rate=0.001):
 
     dim_q = nb_cluster
 
-    tensor_dfs = wtfu.real_to_2D_nonnegative(tensor_df)
-    tensor_dfs /= tensor_dfs.sum()
+    tensor_dfs = wtfu.normalize(wtfu.real_to_2D_nonnegative(tensor_df), None)
     leaf_dfs = wtf.LeafDirichlet(
         name="samples",
         index_id="dfs",
@@ -177,8 +242,8 @@ def make_cluster_snmf2(nb_cluster=4, prior_rate=0.001):
         name="class_by_sample",
         index_id="dq",
         norm_axis=(1,),
-        tensor=tensor_dq,
-        prior_shape=1 + 1e-5 * npr.rand(dim_d, dim_q),
+        tensor=wtfu.normalize(npr.rand(dim_d, dim_q), (1,)),
+        prior_shape=1,
     )
     mul_pfs = wtf.Multiplier(name="barycenters", index_id="pfs")
     leaf_dq.new_child(mul_pfs, index_id_for_child="dp")
@@ -214,7 +279,11 @@ def make_cluster_snmf2(nb_cluster=4, prior_rate=0.001):
     mul_dfsm.new_parents(mul_qfsm, mul_dq)
 
     # observations
-    obs_df = wtf.RealObserver(name="observations", index_id="df", tensor=tensor_df,)
+    obs_df = wtf.RealObserver(
+        name="observations",
+        index_id="df",
+        tensor=tensor_df,
+    )
     mul_dfsm.new_child(obs_df, index_id_for_child="dfs", slice_for_child=(Ellipsis, 0))
     root = wtf.Root(
         name="root",

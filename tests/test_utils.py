@@ -122,10 +122,14 @@ def test_get_transpose_and_slice():
     sub1, sub2, sub_out = "ij", "jkl", "kilj"
     transpose1, slice1 = utils.get_transpose_and_slice(sub1, sub_out)
     transpose2, slice2 = utils.get_transpose_and_slice(sub2, sub_out)
+    transpose3, slice3 = utils.get_transpose_and_slice("", "")
+
     assert transpose1 == (0, 1)
     assert transpose2 == (1, 2, 0)
     assert slice1 == (None, slice(None), None, slice(None))
     assert slice2 == (slice(None), None, slice(None), slice(None))
+    assert transpose3 == ()
+    assert slice3 == Ellipsis
 
 
 def test_supscript_summation(xp):
@@ -703,3 +707,9 @@ def test_inverse_gamma(xp):
     output_arr = xp.zeros_like(input_arr_pos)
     utils.inverse_digamma(input_arr_pos, out=output_arr)
     assert xp.allclose(utils.inverse_digamma(input_arr_pos), output_arr)
+
+
+def test_normalize(xp):
+    tensor = xp.random.rand(3, 4, 2)
+    axis = (1, 2)
+    assert xp.allclose(utils.normalize(tensor, axis).sum(axis), 1)

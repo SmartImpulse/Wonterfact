@@ -28,6 +28,7 @@ from scipy.signal import convolve2d
 
 # wonterfact imports
 import wonterfact as wtf
+import wonterfact.utils as wtfu
 
 
 def make_deconv_tree():
@@ -54,6 +55,7 @@ def make_deconv_tree():
         norm_axis=(1, 2),
         tensor=np.ones((dim_k, dim_y1, dim_x1)),
         prior_shape=100 + 1e-4 * npr.rand(dim_k, dim_y1, dim_x1),
+        init_type="prior",
     )
     leaf_impulse = wtf.LeafGamma(
         name="impulse",

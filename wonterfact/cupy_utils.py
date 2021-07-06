@@ -57,8 +57,14 @@ def cupy_cumsum_2d(arr_in, arr_out, max_threads=256):
         aux = cp.zeros(())
 
     inclusive_scan_2d(
-        (blocks_number_x, blocks_number_y,),
-        (block_dim_x, block_dim_y,),
+        (
+            blocks_number_x,
+            blocks_number_y,
+        ),
+        (
+            block_dim_x,
+            block_dim_y,
+        ),
         (
             arr_in,
             arr_out,
@@ -78,8 +84,14 @@ def cupy_cumsum_2d(arr_in, arr_out, max_threads=256):
         incr = cp.zeros((blocks_number_x, blocks_number_y))
         cupy_cumsum_2d(aux, incr, max_threads=max_threads)
         sum_inclusive_scan_2d(
-            (blocks_number_x, blocks_number_y,),
-            (block_dim_x, batch_dim_y,),
+            (
+                blocks_number_x,
+                blocks_number_y,
+            ),
+            (
+                block_dim_x,
+                batch_dim_y,
+            ),
             (
                 incr,
                 arr_out,
@@ -123,6 +135,19 @@ max_clip = utils.xp_utils.back("cupy").ElementwiseKernel(
     "y = ((x > max_val) ? max_val:x)",
     "max_clip",
 )
+
+_xlogy = utils.xp_utils.back("cupy").ElementwiseKernel(
+    "float64 x, float64 y",  # input params
+    "float64 z",  # output params
+    "z = ((x != 0.0) ? x*log(y):0.0)",
+    "_xlogy",
+)
+
+
+def xlogy(arr1, arr2, out=None):
+    if out is None:
+        return _xlogy(arr1, arr2)
+    return _xlogy(arr1, arr2, out)
 
 
 @cuda.jit()
@@ -499,4 +524,3 @@ void sum_inclusive_scan_2d(
 """,
     "sum_inclusive_scan_2d",
 )
-

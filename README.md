@@ -48,23 +48,25 @@ pip install wonterfact
 ## Getting started: Nonnegative Matrix Factorization (NMF)
 Wonterfact offers many possibilities, and mastering it requires time and effort (a full documentation as well as many tutorials should be released soon). However, once mastered, implementing and testing any tensor factorization model is quite simple and quick. We introduce here, by mean of a very simple example, the main principles of the use of wonterfact.
 
+If you read these lines on github, you can install an appropriate extension such as [this one for Firefox](https://addons.mozilla.org/fr/firefox/addon/latexmathifygithub/) or [this one for Chrome](https://chrome.google.com/webstore/detail/purple-pi/ingbbliecffofmmokknelnijicfcgolb) in order to correctly render mathematical formulas.
+
 ### Formulation of the model.
-The goal of NMF is to find a good approximation of a nonnegative matrix *X*, that can be decomposed as the product of two nonnegative matrices *W* and *H*:<img src="https://render.githubusercontent.com/render/math?math=X\approx WH,W\geq0,H\geq0">. In some application of the NMF problem, *W* is called *atoms* and *H* is called *activations*, terms that will be kept in the following to refer these two factors. Moreover, the more generic term *tensor* can be used instead of *matrix*.
+The goal of NMF is to find a good approximation of a nonnegative matrix *X*, that can be decomposed as the product of two nonnegative matrices $W$ and $H$: $X\approx WH,W\geq 0,H\geq 0$. In some application of the NMF problem, $W$ is called *atoms* and $H$ is called *activations*, terms that will be kept in the following to refer these two factors. Moreover, the more generic term *tensor* can be used instead of *matrix*.
 
 The first stage, and it is the main difficulty, in order to implement such a problem with wonterfact is to reformulate it with normalization constraints. It is not explained why here (there are some theoretical reasons) but factors need to be normalized in a specific way. We give here a step by step simple recipe to provide a valid normalization.
 
-First, give names to each tensor index: <img src="https://render.githubusercontent.com/render/math?math=X_{ft}\approx\sum_{k}W_{fk}H_{kt},W\geq0,H\geq0">. In wonterfact, tensors are identified with their indexes' names.
+First, give names to each tensor index: $X_{ft}\approx\sum_{k}W_{fk}H_{kt},W\geq 0,H\geq 0$. In wonterfact, tensors are identified with their indexes' names.
 
-Then, add a scalar factor <img src="https://render.githubusercontent.com/render/math?math=\lambda"> to the model: <img src="https://render.githubusercontent.com/render/math?math=X_{ft}\approx\lambda\sum_{k}W_{fk}H_{kt},W\geq0,H\geq0">. This scalar can be called *overall energy*.
+Then, add a scalar factor $\lambda$ to the model: $X_{ft}\approx\lambda\sum_{k}W_{fk}H_{kt},W\geq 0,H\geq 0$ This scalar can be called *overall energy*.
 
-Find normalization constraints on each factor so that the sum on all indexes of the left hand side expression, from which overall energy has been withdrawn, is equal to 1. Here, we want then <img src="https://render.githubusercontent.com/render/math?math=\sum_{ftk}W_{fk}H_{kt}=1">. It can be verified that a valid normalization can be: <img src="https://render.githubusercontent.com/render/math?math=\sum_{kt}H_{kt}=1,\forall k,\sum_{f}W_{fk}=1">.
+Find normalization constraints on each factor so that the sum on all indexes of the left hand side expression, from which overall energy has been withdrawn, is equal to 1. Here, we want then $\sum_{ftk}W_{fk}H_{kt}=1$. It can be verified that a valid normalization can be: $\sum_{kt}H_{kt}=1,\forall k,\sum_{f}W_{fk}=1$.
 
-A convenient convention to designate nonnegative tensors subject to normalization constraints is to use the same letter <img src="https://render.githubusercontent.com/render/math?math=\theta"> for them, as well as the sign "|" for partial normalization: any tensor written for instance as <img src="https://render.githubusercontent.com/render/math?math=\theta_{wx\mid zy}"> should verify <img src="https://render.githubusercontent.com/render/math?math=\forall y,z, \sum_{wx}\theta_{wx\mid zy}=1"> and <img src="https://render.githubusercontent.com/render/math?math=\forall w,x,y,z, \theta_{wx\mid zy}\geq 0">. In this way, the model can be reformulated as: <img src="https://render.githubusercontent.com/render/math?math=X_{ft}\approx\lambda\sum_{k}\theta_{f \mid k}\theta_{kt}">. All normalization constraints are implicitly express through the suggested convention and the name of the indexes are sufficient to identify the former *W* and *H* matrices. Generally, there is several ways to find a valid normalization for the factors, but they all respect the following rule: each index must be once and only once on the left side of the sign "|" (all indexes of a tensor subject to normalization constraint and not having a "|" sign are considered to be on the left side). Feel free to switch order of indexes in a given tensor if needed.
+A convenient convention to designate nonnegative tensors subject to normalization constraints is to use the same letter $\theta$ for them, as well as the sign "|" for partial normalization: any tensor written for instance as $\theta_{wx\mid zy}$ should verify $\forall y,z, \sum_{wx}\theta_{wx\mid zy}=1$ and $\forall w,x,y,z, \theta_{wx\mid zy}\geq 0$. In this way, the model can be reformulated as: $X_{ft}\approx\lambda\sum_{k}\theta_{f \mid k}\theta_{kt}$. All normalization constraints are implicitly express through the suggested convention and the name of the indexes are sufficient to identify the former $W$ and $H$ matrices. Generally, there is several ways to find a valid normalization for the factors, but they all respect the following rule: each index must be once and only once on the left side of the sign "|" (all indexes of a tensor subject to normalization constraint and not having a "|" sign are considered to be on the left side). Feel free to switch order of indexes in a given tensor if needed.
 
-Eventually, the overall energy can be reintegrated in a full normalized tensor, i.e. not having the "|" sign, getting rid of this specific normalization constraint. Non-normalized tensors can be expressed with the letter <img src="https://render.githubusercontent.com/render/math?math=\lambda"> and <img src="https://render.githubusercontent.com/render/math?math=\lambda\theta_{kt}"> becomes then <img src="https://render.githubusercontent.com/render/math?math=\lambda_{kt}">.
+Eventually, the overall energy can be reintegrated in a full normalized tensor, i.e. not having the "|" sign, getting rid of this specific normalization constraint. Non-normalized tensors can be expressed with the letter $\lambda$ and $\lambda\theta_{kt}$ becomes then $\lambda_{kt}$.
 
 
-Finally, all intermediate operations should be expressed, so that multiplications of tensors have only two operands. In our case, it gives: <img src="https://render.githubusercontent.com/render/math?math=X_{ft}\approx\lambda_{ft}\text{ with }\lambda_{ft}=\sum_{k}\theta_{f\mid k}\lambda_{kt}, \lambda_{kt}\geq 0, \theta_{f\mid k}\geq 0, \sum_{f}\theta_{f\mid k}=1">. <img src="https://render.githubusercontent.com/render/math?math=\lambda_{kt}"> are the activations and <img src="https://render.githubusercontent.com/render/math?math=\theta_{f\mid k}"> the atoms.
+Finally, all intermediate operations should be expressed, so that multiplications of tensors have only two operands. In our case, it gives: $X_{ft}\approx\lambda_{ft}\text{ with }\lambda_{ft}=\sum_{k}\theta_{f\mid k}\lambda_{kt}, \lambda_{kt}\geq 0, \theta_{f\mid k}\geq 0, \sum_{f}\theta_{f\mid k}=1$. $\lambda_{kt}$ are the activations and $\theta_{f\mid k}$ the atoms.
 
 ### A graphical way to represent the model.
 
@@ -73,7 +75,7 @@ Before implementing the model with wonterfact, it is recommended to draw the tre
 <img src="images/nmf_tree.svg" width="200">
 
 
-Nodes label correspond to the indexes of the tensors. Indexes are underlined to represent tensor not subject to normalization constraints (like <img src="https://render.githubusercontent.com/render/math?math=\lambda_{kt}">), and not underlined if they corresponds to normalized tensors such as <img src="https://render.githubusercontent.com/render/math?math=\theta_{f\mid k}">).
+Nodes label correspond to the indexes of the tensors. Indexes are underlined to represent tensor not subject to normalization constraints (like $\lambda_{kt}$), and not underlined if they corresponds to normalized tensors such as $\theta_{f\mid k}$).
 
 ### Implementation with wonterfact
 
@@ -110,34 +112,34 @@ observer.new_child(my_tree)
 # wtf.create_filiation(observer, root)  # is also equivalent
 ```
 
-Let us go further and define the node above the observer that represents the approximation <img src="https://render.githubusercontent.com/render/math?math=\lambda_{ft}">. It is defined as the product of its two parents, therefore the class `Multiplier` is used. Only `index_id` attribute is necessary (do not forget to define indexes backwards).
+Let us go further and define the node above the observer that represents the approximation $\lambda_{ft}$. It is defined as the product of its two parents, therefore the class `Multiplier` is used. Only `index_id` attribute is necessary (do not forget to define indexes backwards).
 
 ```python
 multiplier = wtf.Multiplier(name='multiplier', index_id='tf')
 multiplier.new_child(observer)  # edge with its child
 ```
 
-For the leaves, let us start with the one representing activations <img src="https://render.githubusercontent.com/render/math?math=\lambda_{kt}">. This tensor has no normalization constraint, therefore the right class to use to represent it is `LeafGamma`. The reason for such a class name is that, in the probabilistic framework on which wonterfact relies, each coefficient of nonnegative tensor factors not subject to normalization constraints are considered as gamma random variables. There are two hyperparameters for gamma random variables: shape and rate. Those two hyperparameters can be specified during creation of the leaf with the two attributes `prior_shape` and `prior_rate`. Those hyperparameters are important since, besides allowing to add smooth constraints on the factors, they also define their initialization. Indeed, initialization is equal to the theoretical value that factors would take if observations were null (up to a minimum small *epsilon* value to avoid zero initialization), prior distribution being then the only contributor. Consequently, if hyperparameters are let to their default values (uniform prior) as it will be done in this example, default initialization is *epsilon* for `LeafGamma`'s tensor values. `tensor` attribute still need to be instantiate with the write shape.
+For the leaves, let us start with the one representing activations $\lambda_{kt}$. This tensor has no normalization constraint, therefore the right class to use to represent it is `LeafGamma`. The reason for such a class name is that, in the probabilistic framework on which wonterfact relies, each coefficient of nonnegative tensor factors not subject to normalization constraints are considered as gamma random variables. There are two hyperparameters for gamma random variables: shape and rate. Those two hyperparameters defines then the prior distribution of the activations and can be specified during creation of the leaf with the two attributes `prior_shape` and `prior_rate`. Leaving these two attributes to their default value is equivalent to not consider any prior. `tensor` attribute is compulsory and defines the initial values for the activations.
 
 ```python
 leaf_tk = wtf.LeafGamma(
     name='activations',
     index_id='tk',
-    tensor=np.empty((dim_t, dim_k)),  # no need to initialize
+    tensor=np.ones((dim_t, dim_k)),  # initialization with uniform activations
     prior_shape=1,  # default value, meaning "uniform prior" over R
     prior_scale=0  # default value, meaning "uniform prior" over R
 )
 ```
 
-The last node to create is the leaf representing atoms <img src="https://render.githubusercontent.com/render/math?math=\theta_{f\mid k}">. Since this tensor is subject to normalization constraint, the right class to use is `LeafDirichlet`, referring to the Dirichlet prior distribution. This distribution can be defined with the shape hyperparameters. Besides `index_id`, `tensor`, and `prior_shape` attributes, `LeafDirichlet` class needs a `norm_axis` attribute that specifies the axes on which the tensor has the normalization constraint. For a reason internal to wonterfact (related to the way numpy manages automatic broadcasting arrays), **it is necessary that normalization axes are the last axes of the tensor**, hence the convention to define indexes and tensors' shape backwards. Concerning the values of the shape hyperparameters, it cannot be left to default value (equals to 1, meaning uniform prior) because some randomness is needed in initialization (if not, each component of the NMF would converge towards the same limit). Therefore, we add small fluctuations above 1 for those hyperparameters. Random initialization could also be applied to activations instead of atoms, it is just an arbitrary choice.
+The last node to create is the leaf representing atoms$\theta_{f\mid k}$. Since this tensor is subject to normalization constraint, the right class to use is `LeafDirichlet`, referring to the Dirichlet prior distribution. This distribution can be defined with the shape hyperparameters. Besides `index_id`, `tensor`, and `prior_shape` attributes, `LeafDirichlet` class needs a `norm_axis` attribute that specifies the axes on which the tensor has the normalization constraint. For a reason internal to wonterfact (related to the way numpy manages automatic broadcasting arrays), **it is necessary that normalization axes are the last axes of the tensor**, hence the convention to define indexes and tensors' shape backwards. We decide to randomly initialize the atoms. Beware that initialization must respect the normalization constraint.
 
 ```python
 leaf_kf = wtf.LeafDirichlet(
     name='atoms',
     index_id='kf',
     norm_axis=(1, ),  # self.tensor.sum(axis=self.norm_axis) must be equal to 1
-    tensor=np.empty((dim_k, dim_f)),  # no need to initialize
-    prior_shape=1 + 1e-5 * npr.rand(dim_k, dim_f),  # very little fluctuations above 1
+    tensor=npr.dirichlet(np.ones(dim_f), size=dim_k),  # random initialization
+    prior_shape=1,  # default value, meaning "uniform prior" over the simplex
 )
 ```
 

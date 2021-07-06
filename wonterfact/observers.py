@@ -20,12 +20,10 @@
 """Module for all observer classes"""
 
 
-# Python Future imports
-from __future__ import division, unicode_literals, print_function, absolute_import
-
 # Python System imports
 
 # Third-party imports
+import numpy as np
 import numpy.random as npr
 from functools import cached_property
 
@@ -96,6 +94,9 @@ class _Observer(
     @cached_property
     def sum_tensor(self):
         return glob.xp.abs(self.tensor).sum()
+
+    def there_is_a_mult_factor(self):
+        return self.drawings != self.sum_tensor
 
     def get_current_mult_factor(self):
         return self.drawings / self.sum_tensor if self.sum_tensor else 1
@@ -201,6 +202,12 @@ class RealObserver(_Observer):
     """
 
     def __init__(self, **kwargs):
+        """
+        Parameters
+        ----------
+        limit_skellam_update: bool, default True
+            Set to True if data are real, False if data are integer
+        """
         self.limit_skellam_update = kwargs.pop("limit_skellam_update", True)
         super().__init__(**kwargs)
 
@@ -216,13 +223,12 @@ class RealObserver(_Observer):
     def abs_tensor_power2(self):
         return self.abs_tensor ** 2
 
-    def _initialization(self):
+    @cached_property
+    def nonneg_tensor(self):
+        return utils.real_to_2D_nonnegative(self.tensor)
 
-        self.tensor_update_dict = {}
-        for parent in self.list_of_parents:
-            self.tensor_update_dict[parent] = glob.xp.ones_like(
-                parent.get_tensor_for_children(self)
-            )
+    def _initialization(self):
+        pass
 
     def get_current_reconstruction(self, parent, force_numpy=False):
         parent_tensor = parent.get_tensor_for_children(self)
@@ -278,27 +284,26 @@ class RealObserver(_Observer):
     def temp_calculus(self, parent):
         parent_tensor = parent.get_tensor_for_children(self)
         model_param_prod = parent_tensor[..., 0] * parent_tensor[..., 1]
-        temp = (
-            4 * model_param_prod
-            + self.get_current_mult_factor() ** 2 * self.abs_tensor_power2
-        ) ** 0.5
-        return temp
-
-    def temp_calculus_skellam(self, parent):
-        parent_tensor = parent.get_tensor_for_children(self)
-        model_param_prod = parent_tensor[..., 0] * parent_tensor[..., 1]
-        temp = utils.bessel_ratio(
-            self.get_current_mult_factor() * self.abs_tensor + 1,
-            2 * (model_param_prod ** 0.5),
-            1e-16,
-        )
+        if self.there_is_a_mult_factor():
+            abs_tensor_power2 = (
+                self.get_current_mult_factor() ** 2 * self.abs_tensor_power2
+            )
+        else:
+            abs_tensor_power2 = self.abs_tensor_power2
+        temp = glob.xp.sqrt(4 * model_param_prod + abs_tensor_power2)
         return temp
 
     def _give_update(self, parent, out=None):
 
         # model
         parent_tensor = parent.get_tensor_for_children(self)
-        mult_fact = self.get_current_mult_factor()
+        if self.there_is_a_mult_factor():
+            mult_fact = self.get_current_mult_factor()
+            abs_tensor = mult_fact * self.abs_tensor
+            nonneg_tensor = mult_fact * self.nonneg_tensor
+        else:
+            abs_tensor = self.abs_tensor
+            nonneg_tensor = self.nonneg_tensor
 
         if out is None:
             tensor_update = glob.xp.empty_like(parent_tensor)
@@ -306,37 +311,37 @@ class RealObserver(_Observer):
             tensor_update = out
 
         # compute tensor_update
-        mask = parent_tensor > 0
-        mask[..., 0] &= self.is_tensor_pos
-        mask[..., 1] &= glob.xp.logical_not(self.is_tensor_pos)
-
         if not self.limit_skellam_update:
-            temp_calculus = self.temp_calculus_skellam(parent)
-            tensor_update[...] = (2 * parent_tensor[..., ::-1]) / (
-                2 * (1 + mult_fact * self.abs_tensor[..., None])
-                + temp_calculus[..., None]
-            )
+            model_param_prod = parent_tensor[..., 0] * parent_tensor[..., 1]
+            for ii in range(2):
+                tensor_update[..., ii] = (2 * parent_tensor[..., 1 - ii]) / (
+                    2 * (1 + abs_tensor)
+                    + utils.bessel_ratio(
+                        abs_tensor + 1,
+                        2 * (model_param_prod ** 0.5),
+                        1e-16,
+                    )
+                )
         else:
             temp_calculus = self.temp_calculus(parent)
-            is_temp_calculus_null = temp_calculus == 0
-            tensor_update[...] = (2 * parent_tensor[..., ::-1]) / (
-                mult_fact * self.abs_tensor[..., None]
-                + temp_calculus[..., None]
-                + is_temp_calculus_null[
-                    ..., None
-                ]  # to avoid x/0, in which case value of tensor_update is not important
-            )
-        tensor_update += (mult_fact * self.abs_tensor[..., None] * mask) / (
-            parent_tensor + ~mask
-        )
-
-        # heuristic (for now) in order to improve convergence rate
-        self.tensor_update_dict[parent] = tensor_update
+            for ii in range(2):
+                tensor_update[..., ii] = (2 * parent_tensor[..., 1 - ii]) / (
+                    abs_tensor
+                    + temp_calculus
+                    # to avoid x/0, in which case value of tensor_update is not important
+                )
+        if glob.xp == np:
+            with np.errstate(invalid="ignore"):
+                tensor_update += nonneg_tensor / parent_tensor
+        else:
+            tensor_update += nonneg_tensor / parent_tensor
+        tensor_update[parent_tensor == 0] = 0
+        # glob.xp.nan_to_num(tensor_update, copy=False)
 
         self.update_drawings()
-        self.apply_mask_to_tensor_update(self.tensor_update_dict[parent])
+        self.apply_mask_to_tensor_update(tensor_update)
 
-        return self.tensor_update_dict[parent]
+        return tensor_update
 
 
 class BlindObs(core_nodes._ChildNode, core_nodes._ParentNode):

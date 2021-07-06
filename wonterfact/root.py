@@ -125,7 +125,10 @@ class Root(_ChildNode):
         self.seed = kwargs.pop("seed", None)
         self.logger = kwargs.pop("logger", None)
         self.verbose_iter = kwargs.pop("verbose_iter", 0)
+        super().__init__(**kwargs)
+        self.reset()
 
+    def reset(self):
         # fixed attributes
         self.data_fitting_record = []
         self.constraints_fitting_record = []
@@ -135,7 +138,6 @@ class Root(_ChildNode):
         self.time_duration = []
         self.current_iter_list = []
         self.need_a_bump = False
-        super().__init__(**kwargs)
 
         # logger creation
         self.logger = self.logger or logging.getLogger("wtf")
@@ -162,6 +164,7 @@ class Root(_ChildNode):
             "nb_step": nb_step,
             "best_step": 0,
         }
+        self.clear_all_nodes_cache()
 
     def tree_traversal(
         self,
@@ -285,7 +288,7 @@ class Root(_ChildNode):
         else:
             raise ValueError("Unknown `update_type`")
 
-    def estimate_param(self, n_iter, check_model_validity=True):
+    def estimate_param(self, n_iter, check_model_validity=True, clear_cache=True):
         """
         Run parameters estimation algorithm.
 
@@ -295,6 +298,13 @@ class Root(_ChildNode):
             Indicates the number of iterations to perform. Algorithm could stop
             earlier if convergence is reached (see ``stop_estim_threshold``
             parameter in Root.__init__ docstring).
+        check_model_validity : bool, default True
+            If True, raise an error if the model validity cannot be ensure.
+            Setting to False might lead to unreliable parameter estimation
+        clear_cache : bool, default True
+            Wether all cached properties and cache methods should be cleared
+            beforehand. It is a way to run the method safely in case the user has
+            made changes in attributes of the tree's nodes.
 
         Notes
         -----
@@ -303,19 +313,12 @@ class Root(_ChildNode):
         equivalent to calling it once with ``n_iter=2 * n``.
         """
         max_iter = self.current_iter + n_iter
-
+        if clear_cache:
+            self.clear_all_nodes_cache()
         try:
             for __ in range(n_iter):
                 if self.current_iter == 0:
                     self._first_iteration(check_model_validity=check_model_validity)
-                    if (
-                        self.update_type == "parabolic"
-                        and self.inference_mode == "VBEM"
-                    ):
-                        raise NotImplementedError(
-                            "Parabolic acceleration is not yet implemented in"
-                            "'VBEM' mode"
-                        )
                 else:
                     self._regular_iteration()
                 self.current_iter += 1
@@ -339,9 +342,14 @@ class Root(_ChildNode):
                 mode="top-down",
                 method_input=((), {"update_type": "no_update_for_leaves"}),
                 iteration_number=self.current_iter,
-                type_filter_list=[buds._Bud,],
+                type_filter_list=[
+                    buds._Bud,
+                ],
             )
-            self.logger.info("Parameter estimation stopped by user.")
+            self.logger.info(
+                "Parameter estimation stopped by user, finishing current iteration."
+            )
+            raise KeyboardInterrupt
 
     def _stop_condition(self):
         stop = len(self.cost_record) >= 2 and (
@@ -355,13 +363,17 @@ class Root(_ChildNode):
             "compute_tensor_update",
             mode="bottom-up",
             iteration_number=self.current_iter,
-            type_filter_list=[buds._Bud,],
+            type_filter_list=[
+                buds._Bud,
+            ],
         )
         self.tree_traversal(
             "_update_tensor",
             mode="top-down",
             iteration_number=self.current_iter,
-            type_filter_list=[buds._Bud,],
+            type_filter_list=[
+                buds._Bud,
+            ],
         )
 
     def _draw_need_a_dump(self, num_iter):
@@ -380,13 +392,17 @@ class Root(_ChildNode):
             mode="top-down",
             method_input=((), method_kwarg),
             iteration_number=self.current_iter,
-            type_filter_list=[buds._Bud,],
+            type_filter_list=[
+                buds._Bud,
+            ],
         )
         data_fitting = self._get_data_fitting()
         contraints_fitting = self._get_total_contraints_fitting()
         new_cost = data_fitting + contraints_fitting
         self.parab_acc_state["evaluation_number"][-1] += 1
-
+        # TODO: this is a workaround for overflow issue in utils.hyp0f1ln
+        if not glob.xp.isfinite(new_cost):
+            return glob.xp.inf
         return new_cost
 
     def _make_one_parabolic_step_aux1(self):
@@ -395,7 +411,9 @@ class Root(_ChildNode):
             "_update_past_tensors",
             mode="top-down",
             iteration_number=self.current_iter,
-            type_filter_list=[buds._Bud,],
+            type_filter_list=[
+                buds._Bud,
+            ],
         )
         if self.current_iter == self.acceleration_start_iter + 2:
             self.parab_acc_state["current_cost"] = self.get_cost_func()
@@ -412,7 +430,9 @@ class Root(_ChildNode):
                 "_update_past_tensors",
                 mode="top-down",
                 iteration_number=self.current_iter,
-                type_filter_list=[buds._Bud,],
+                type_filter_list=[
+                    buds._Bud,
+                ],
             )
             current_cost = self.get_cost_func()
             self.parab_acc_state["current_cost"] = current_cost
@@ -518,7 +538,9 @@ class Root(_ChildNode):
                             mode="top-down",
                             method_input=((), method_kwarg),
                             iteration_number=self.current_iter,
-                            type_filter_list=[buds._Bud,],
+                            type_filter_list=[
+                                buds._Bud,
+                            ],
                         )
                     self.parab_acc_state["step_distrib"][
                         self.parab_acc_state["last_best_step"]
@@ -560,7 +582,9 @@ class Root(_ChildNode):
             "_bump",
             mode="top-down",
             iteration_number=self.current_iter,
-            type_filter_list=[buds._Bud,],
+            type_filter_list=[
+                buds._Bud,
+            ],
         )
         if self.update_type == "parabolic":
             # self.acceleration_start_iter = self.current_iter
@@ -569,13 +593,38 @@ class Root(_ChildNode):
             )
         self.need_a_bump = False
 
-    def estimate_hyperparam(self, n_iter, counter_max=0):
+    def estimate_hyperparam(self, n_iter, learning_rate=1.0, clear_cache=True):
+        """
+        Run hyperparameters estimation algorithm.
+
+        Parameters
+        ----------
+        n_iter : int
+            Indicates the number of iterations to perform. Algorithm could stop
+            earlier if convergence is reached (see ``stop_estim_threshold``
+            parameter in Root.__init__ docstring).
+        learning_rate : float between 0.0 and 1.0, default 1.0
+            If 1.0, past observations are ignored, if 0.0 hyperparameters are not
+            updated
+        clear_cache : bool, default True
+            Wether all cached properties and cache methods should be cleared
+            beforehand. It is a way to run the method safely in case the user
+            has made changes in attributes of the tree's nodes.
+
+        Notes
+        -----
+        It allows stop and go mode, meaning that, assuming that convergence will
+        not be reached, calling this method twice with a given ``n_iter=n`` is
+        equivalent to calling it once with ``n_iter=2 * n``.
+        """
         if self.inference_mode == "EM":
             raise ValueError("hyperparameters cannot be estimated in EM mode")
+        if clear_cache:
+            self.clear_all_nodes_cache()
         # first compute tensor update
         for bud in self.nodes_by_level[0]:
             if bud.update_period != 0:
-                bud.compute_tensor_update_online(counter_max=counter_max)
+                bud.compute_tensor_update_online(learning_rate=learning_rate)
         for __ in range(n_iter):
             for bud in self.nodes_by_level[0]:
                 if isinstance(bud, buds.BudShape) and bud.update_period != 0:
@@ -662,7 +711,7 @@ class Root(_ChildNode):
         str_verbose.append("it:" + "{:4.0f}/{}".format(self.current_iter, max_iter))
         str_verbose.append("df:" + "{:.3e}".format(data_fit))
         str_verbose.append("cf:" + "{:.3e}".format(const_fit))
-        str_verbose.append("tot:" + "{:.3e}".format(tot))
+        str_verbose.append("tot:" + "{:.4e}".format(tot))
         str_verbose.append("dur:" + "{:2.1f}".format(toc - self.tic))
         self.logger.info("|".join(str_verbose))
         self.tic = toc
@@ -710,3 +759,6 @@ class Root(_ChildNode):
             integer_observations=integer_observations,
         )
 
+    def clear_all_nodes_cache(self):
+        for node in self.census():
+            node.clear_cache()

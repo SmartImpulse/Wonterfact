@@ -35,6 +35,11 @@ from wonterfact import buds
 # relative imports
 from . import utils as t_utils
 
+
+def normalize(arr, axis):
+    return arr / arr.sum(axis, keepdims=True)
+
+
 # let us create a wonterfact tree once for all tests
 def make_test_tree():
     """
@@ -55,8 +60,8 @@ def make_test_tree():
         name="leaf_k",
         index_id="k",
         norm_axis=(0,),
-        tensor=np.ones(dim_k),
-        prior_shape=1 + 0.1 * npr.rand(dim_k),
+        tensor=normalize(npr.rand(dim_k), 0),
+        prior_shape=1,
     )
     mul_k = wtf.Multiplier(name="mul_k", index_id=("k",))
     mul_k.new_parents(leaf_energy, leaf_k)
@@ -65,8 +70,8 @@ def make_test_tree():
         name="leaf_kts_0",
         index_id="kts",
         norm_axis=(1, 2),
-        tensor=np.ones((dim_k, dim_t, dim_s)),
-        prior_shape=1 + 0.00001 * npr.rand(dim_k, dim_t, dim_s),
+        tensor=normalize(npr.rand(dim_k, dim_t, dim_s), (1, 2)),
+        prior_shape=1,
     )
     mul_kts = wtf.Multiplier(name="mul_kts", index_id="kts")
     mul_kts.new_parents(leaf_kts_0, mul_k)
@@ -74,8 +79,8 @@ def make_test_tree():
     leaf_kts_1 = wtf.LeafGamma(
         name="leaf_kts_1",
         index_id="kts",
-        tensor=np.ones((dim_k, dim_t, dim_s)),
-        prior_shape=1 + 0.001 * npr.rand(dim_k, dim_t, dim_s),
+        tensor=npr.rand(dim_k, dim_t, dim_s),
+        prior_shape=1,
         prior_rate=0.001,
     )
     mult_ktsc = wtf.Multiplexer(name="mult_ktsc", index_id="ktsc")
@@ -98,8 +103,8 @@ def make_test_tree():
         name="leaf_kf",
         index_id="kf",
         norm_axis=(1,),
-        tensor=np.ones((dim_k, dim_f)),
-        prior_shape=1 + 0.01 * npr.rand(dim_k, dim_f),
+        tensor=normalize(npr.rand(dim_k, dim_f), 1),
+        prior_shape=1,
         update_period=3,
         update_succ=2,
         update_offset=0,
@@ -125,8 +130,8 @@ def make_test_tree():
     leaf_k_1 = wtf.LeafGamma(
         name="leaf_k_1",
         index_id="k",
-        tensor=np.ones(dim_k),
-        prior_shape=1 + 0.001 * npr.rand(dim_k),
+        tensor=npr.rand(dim_k),
+        prior_shape=1,
         prior_rate=0.001,
     )
     # one update every 3 iterations
@@ -134,7 +139,7 @@ def make_test_tree():
         name="leaf_kt",
         index_id="kt",
         norm_axis=(1,),
-        tensor=np.ones((dim_k, dim_t)),
+        tensor=normalize(np.ones((dim_k, dim_t)), 1),
         prior_shape=1,
         update_period=3,
         update_succ=1,
@@ -304,7 +309,8 @@ def test_initialization(tree):
         method_input=((), dict(mode=tree.root.inference_mode)),
     )
     tree.root.tree_traversal(
-        "_initialization", mode="top-down",
+        "_initialization",
+        mode="top-down",
     )
     norm_tensor_k = tree.leaf_kf.get_tensor(force_numpy=True).sum(1)
     assert np.allclose(norm_tensor_k, 1.0)
@@ -338,13 +344,16 @@ def test_compute_tensor_update(tree):
         method_input=((), dict(mode=tree.root.inference_mode)),
     )
     tree.root.tree_traversal(
-        "_initialization", mode="top-down",
+        "_initialization",
+        mode="top-down",
     )
     tree.root.tree_traversal(
         "compute_tensor_update",
         mode="bottom-up",
         iteration_number=0,
-        type_filter_list=[buds._Bud,],
+        type_filter_list=[
+            buds._Bud,
+        ],
     )
 
     assert wtf.glob.xp.allclose(
@@ -386,4 +395,3 @@ def test_graphviz(tree):
         "c": {"description": "complex part"},
     }
     assert t_utils._assert_graphviz_ok(tree, legend_dict)
-

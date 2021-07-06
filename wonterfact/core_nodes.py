@@ -21,7 +21,8 @@
 
 # Python System imports
 from functools import cached_property
-from methodtools import lru_cache  # allows cache decorator per instance
+from methodtools import lru_cache, _LruCacheWire  # allows cache decorator per instance
+import inspect
 
 # Relative imports
 from . import utils
@@ -54,7 +55,6 @@ class _Node(
         if not self.name:
             base62.sign = "_"
             self.name = "n_" + base62.encode(id(self))
-        self.already_been_counted = False
 
     def census(self, nodebook=None):  # Needs to be overridden in ChildNode class.
         """
@@ -103,6 +103,25 @@ class _Node(
     def __repr__(self):
         str_out = "{}(name='{}')".format(type(self).__name__, self.name)
         return str_out
+
+    def clear_cache(self):
+        list_of_names = [
+            name
+            for name, value in inspect.getmembers(self.__class__)
+            if isinstance(value, cached_property)
+        ]
+        for name in list_of_names:
+            try:
+                self.__delattr__(name)
+            except AttributeError:
+                pass
+        list_of_names = [
+            name
+            for name, value in inspect.getmembers(self.__class__)
+            if isinstance(value, _LruCacheWire)
+        ]
+        for name in list_of_names:
+            getattr(self, name).cache_clear()
 
 
 class _ParentNode(_Node):
@@ -334,10 +353,21 @@ class _NodeData(_ParentNode):
 
     def get_tensor(self, force_numpy=False):
         """
-        Return inner tensor. If force_numpy is true, the tensor is casted to
+        Returns inner tensor. If force_numpy is true, the tensor is casted to
         numpy ndarray if needed (if cupy backend is used)
         """
         return self.cast_array(self.tensor, force_numpy=force_numpy)
+
+    @property
+    def tensor_as_numpy(self):
+        return self.get_tensor(force_numpy=True)
+
+    def getattr_as_numpy(self, attr):
+        """
+        Returns attr as a numpy array.
+        """
+        attr = getattr(self, attr)
+        return self.cast_array(attr, force_numpy=True)
 
     def tensor_has_energy(self):
         """
@@ -470,9 +500,13 @@ class _DynNodeData0(_NodeData):
         """
         if iteration_number is None:
             return True
-        should_update = self.update_period != 0 and (
-            (iteration_number - self.update_offset) % self.update_period
-            < self.update_succ
+        should_update = (
+            self.update_period != 0
+            and (
+                (iteration_number - self.update_offset) % self.update_period
+                < self.update_succ
+            )
+            and iteration_number >= self.update_offset
         )
         all_children_should_update = all(
             child.should_update(iteration_number)
@@ -656,7 +690,7 @@ class _DynNodeData0(_NodeData):
 class _DynNodeData(_DynNodeData0):
     """
     Base class for all nodes that carry values belonging in the domain of
-    paramaters (basically paramater leaves and operators)
+    paramaters (basically parameter leaves and operators)
     """
 
     def get_norm_axis_for_children(self, child):

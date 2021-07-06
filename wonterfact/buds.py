@@ -37,7 +37,7 @@ class _Bud(core_nodes._DynNodeData0):
     """
 
     def __init__(self, **kwargs):
-        self.processed_data_counter = 0
+        self.new_born = True
         super().__init__(**kwargs)
 
     @property
@@ -64,11 +64,16 @@ class _Bud(core_nodes._DynNodeData0):
         if mode == "EM":
             self.update_period = 0
 
-    def _initialization(self):
+    def _first_iteration(self):
         # this one is for e_d or m_e (cf technical report)
         self.tensor_update = glob.xp.empty_like(self.tensor)
         # this one is for hyperparameter optimization algorithm
         self.tensor_update_bis = glob.xp.empty_like(self.tensor)
+        # at the first run, self.tensor_update needs to be initialized
+        self._compute_tensor_update_aux2(
+            tensor_to_fill=self.tensor_update,
+            method_to_call="_give_update_first_iteration",
+        )
 
     @cached_property
     def number_of_users(self):
@@ -78,25 +83,25 @@ class _Bud(core_nodes._DynNodeData0):
         """
         number = glob.xp.zeros_like(self.tensor)
         self._compute_tensor_update_aux2(
-            tensor_to_fill=number, method_to_call="_give_number_of_users",
+            tensor_to_fill=number,
+            method_to_call="_give_number_of_users",
         )
         return number
 
     def get_update_bis(self, tensor_to_fill):
         self._compute_tensor_update_aux2(
-            tensor_to_fill=tensor_to_fill, method_to_call="_give_update_bis",
+            tensor_to_fill=tensor_to_fill,
+            method_to_call="_give_update_bis",
         )
 
-    def compute_tensor_update_online(self, counter_max=0):
-        if counter_max == 0:
-            self.compute_tensor_update()
-        else:
-            counter = max(self.processed_data_counter, counter_max)
-            past_tensor_update = self.tensor_update * counter / (counter + 1)
-            self.compute_tensor_update()  # new values in self.tensor_update
-            self.tensor_update /= counter + 1
-            self.tensor_update += past_tensor_update
-        self.processed_data_counter += 1
+    def compute_tensor_update_online(self, learning_rate=1.0):
+        if self.new_born:
+            self._first_iteration()
+            self.new_born = False
+        past_tensor_update = self.tensor_update * (1.0 - learning_rate)
+        self.compute_tensor_update()  # new values in self.tensor_update
+        self.tensor_update *= learning_rate
+        self.tensor_update += past_tensor_update
 
 
 class BudShape(_Bud):
@@ -126,4 +131,3 @@ class BudRate(_Bud):
     def update_tensor(self):
         self.get_update_bis(tensor_to_fill=self.tensor_update_bis)
         self.tensor[...] = self.tensor_update_bis / self.tensor_update
-

@@ -135,6 +135,44 @@ class BackendSpecific:
 xp_utils = BackendSpecific()
 
 
+def cupy_alternative(infer_backend_from):
+    """
+    A decorator that allows to call an alternative cupy function in case
+    input arrays are cupy arrays instead of numpy arrays. The cupy alternative
+    method must have the same name, and the same signature as the decorated
+    method and must be place in cupy_utils module.
+
+    Parameters
+    ----------
+    infer_backend_from: str
+        Name of an input array in decorated function signature from which
+        backend (numpy or cupy) is inferred.
+    """
+
+    def _cupy_alternative(numpy_func):
+        func_args = list(inspect.signature(numpy_func).parameters.keys())
+
+        @wraps(numpy_func)
+        def method_call(*args, backend=None, **kwargs):
+            array_level = func_args.index(infer_backend_from)
+            array = (
+                args[array_level]
+                if array_level < len(args)
+                else kwargs.get(infer_backend_from)
+            )
+            backend = backend or infer_backend(array)
+            func_to_execute = (
+                numpy_func
+                if backend == "numpy"
+                else getattr(xp_utils.get_cupy_utils("cupy"), numpy_func.__name__)
+            )
+            return func_to_execute(*args, **kwargs)
+
+        return method_call
+
+    return _cupy_alternative
+
+
 def _has_a_shared_sublist(ls1, ls2):
     """
     Given two lists ls1 and ls2, if the two sub-lists defined as "all elements
@@ -172,7 +210,7 @@ def infer_backend(x):
     return backend
 
 
-@lru_cache(maxsize=10242048)
+@lru_cache(maxsize=2048)
 def get_transpose_and_slice(sub, sub_out):
     """
     Gives transposition and slicing to apply to an array whose supscripts name
@@ -180,6 +218,7 @@ def get_transpose_and_slice(sub, sub_out):
     """
     transpose = tuple(sub.index(idx) for idx in sub_out if idx in sub)
     slice_to_apply = tuple(None if idx not in sub else slice(None) for idx in sub_out)
+    slice_to_apply = Ellipsis if slice_to_apply == () else slice_to_apply
     return transpose, slice_to_apply
 
 
@@ -309,7 +348,7 @@ def _sequential_tensor_dot(
 ):
     # declaration of output tensor
     if out is None:
-        out = xp_utils.back(backend).empty(out_shape)
+        out = xp_utils.back(backend).empty(out_shape, dtype=op1.dtype)
 
     for slice_out, slice_1, slice_2 in zip(
         list_of_slice_out, list_of_slice_1, list_of_slice_2
@@ -353,7 +392,8 @@ def _parse_einsum_two_operands_input(shape_1, sub1, shape_2, sub2, sub_out, back
         slice1 = tuple(slice(None) if idx in sub1 else None for idx in sub_out)
         return _element_wise_mult, transpose1, transpose2, slice1, slice2
 
-    # Is it a multiplication and then a reduction (with no extra dimension)? (only interesting if backend is cupy due to poor perf of cupy.einsum)
+    # Is it a multiplication and then a reduction (with no extra dimension)?
+    # (only interesting if backend is cupy due to poor perf of cupy.einsum)
     # let's  suppose set1 is smaller than set2
     if (
         (set1.issubset(set2) or set2.issubset(set1))
@@ -428,9 +468,15 @@ def _parse_einsum_two_operands_input(shape_1, sub1, shape_2, sub2, sub_out, back
 
     shape_inner_id = tuple(id2shape_dict[idx] for idx in inner_id_list)
     for inner_id_values in product(*(range(ii) for ii in shape_inner_id)):
-        slice_1 = [slice(None),] * len(shape_1)
-        slice_2 = [slice(None),] * len(shape_2)
-        slice_out = [slice(None),] * len(out_shape)
+        slice_1 = [
+            slice(None),
+        ] * len(shape_1)
+        slice_2 = [
+            slice(None),
+        ] * len(shape_2)
+        slice_out = [
+            slice(None),
+        ] * len(out_shape)
         for idx, num_idx in zip(inner_id_list, inner_id_values):
             slice_1[id2axis_dict_1[idx]] = num_idx
             slice_2[id2axis_dict_2[idx]] = num_idx
@@ -698,28 +744,15 @@ def _find_equality_root(
     return sigma
 
 
-def xlogy(
-    x_arr, y_arr, out=None, backend=None
-):  # TODO: eventually compute in numba.cuda
+@cupy_alternative(infer_backend_from="x_arr")
+def xlogy(x_arr, y_arr, out=None, backend=None):
     """
     Same as scipy.special.xlogy but works either with numpy of cupy arrays.
     Used backend can be manually specified via keyword argument 'backend' which
     can be 'numpy', 'cupy' or None. If None, the backend is automatically
     inferred.
     """
-    backend = backend or infer_backend(x_arr)
-    if backend == "cupy":
-        x_arr = xp_utils.back(backend).array(x_arr)
-        y_arr = xp_utils.back(backend).array(y_arr)
-        mask = x_arr != 0
-        if out is None:
-            out = x_arr * xp_utils.back(backend).log(y_arr + ~mask)
-        else:
-            out[...] = x_arr * xp_utils.back(backend).log(y_arr + ~mask)
-        # out[mask] = x_arr[mask] * xp_utils.back(backend).log(y_arr[mask])
-        return out
-    else:
-        return sps.xlogy(x_arr, y_arr, out=out)  # pylint: disable=no-member
+    return sps.xlogy(x_arr, y_arr, out=out)  # pylint: disable=no-member
 
 
 def cumsum_last_axis(arr, out, backend=None):
@@ -803,44 +836,6 @@ def scalar_compatible(*arg_names):
     return _scalar_compatible
 
 
-def cupy_alternative(infer_backend_from):
-    """
-    A decorator that allows to call an alternative cupy function in case
-    input arrays are cupy arrays instead of numpy arrays. The cupy alternative
-    method must have the same name, and the same signature as the decorated
-    method and must be place in cupy_utils module.
-
-    Parameters
-    ----------
-    infer_backend_from: str
-        Name of an input array in decorated function signature from which
-        backend (numpy or cupy) is inferred.
-    """
-
-    def _cupy_alternative(numpy_func):
-        func_args = list(inspect.signature(numpy_func).parameters.keys())
-
-        @wraps(numpy_func)
-        def method_call(*args, backend=None, **kwargs):
-            array_level = func_args.index(infer_backend_from)
-            array = (
-                args[array_level]
-                if array_level < len(args)
-                else kwargs.get(infer_backend_from)
-            )
-            backend = backend or infer_backend(array)
-            func_to_execute = (
-                numpy_func
-                if backend == "numpy"
-                else getattr(xp_utils.get_cupy_utils("cupy"), numpy_func.__name__)
-            )
-            return func_to_execute(*args, **kwargs)
-
-        return method_call
-
-    return _cupy_alternative
-
-
 @scalar_compatible("input_arr")
 @cupy_alternative(infer_backend_from="input_arr")
 @jit
@@ -901,6 +896,8 @@ def hyp0f1ln(v_arr, z_arr, tol=1e-16):
     tol: float, optional, default 1e-4
         Precision
     """
+    # TODO: fixe overflow issue when z_arr>>1, a lead would to check there:
+    # https://github.com/stan-dev/math/blob/92075708b1d1796eb82e3b284cd11e544433518e/stan/math/prim/fun/log_modified_bessel_first_kind.hpp
 
     # TODO: v_arr and z_arr must have the same shape for now
     shape = v_arr.shape
@@ -1033,7 +1030,9 @@ def explicit_slice(input_slice, ndim):
         if elem_as_np is not None:
             ndim -= elem_as_np.ndim - 1
 
-    explicit_slice = [slice(None),] * ndim
+    explicit_slice = [
+        slice(None),
+    ] * ndim
     found_ellipsis = False
     for num_dim, sl in enumerate(input_slice):
         if sl is Ellipsis:
@@ -1149,3 +1148,24 @@ def inverse_digamma(input_arr, num_iter=5, backend=None, out=None):
 
     if out is None:
         return output_arr
+
+
+def normalize(tensor, axis):
+    """
+    Returns a normalized version of the input tensor (l1 normalization) along
+    given axis
+
+    Parameters
+    ----------
+    tensor: array_like,
+        Must contain nonnegative coefficients
+    axis: tuple
+        Axis along which tensor should be normalized
+
+    Returns
+    -------
+    array_like
+        output tensor, equals to `tensor / tensor.sum(axis=axis, keepdims=True)`
+
+    """
+    return tensor / tensor.sum(axis=axis, keepdims=True)
