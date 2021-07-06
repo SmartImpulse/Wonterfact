@@ -48,7 +48,7 @@ pip install wonterfact
 ## Getting started: Nonnegative Matrix Factorization (NMF)
 Wonterfact offers many possibilities, and mastering it requires time and effort (a full documentation as well as many tutorials should be released soon). However, once mastered, implementing and testing any tensor factorization model is quite simple and quick. We introduce here, by mean of a very simple example, the main principles of the use of wonterfact.
 
-If you read these lines on github, you can install an appropriate extension such as [this one for Firefox](https://addons.mozilla.org/fr/firefox/addon/latexmathifygithub/) or [this one for Chrome](https://chrome.google.com/webstore/detail/purple-pi/ingbbliecffofmmokknelnijicfcgolb) in order to correctly render mathematical formulas.
+(If you read these lines on github, you can install an appropriate extension such as [this one for Firefox](https://addons.mozilla.org/fr/firefox/addon/latexmathifygithub/) or [this one for Chrome](https://chrome.google.com/webstore/detail/github-math-display/cgolaobglebjonjiblcjagnpmdmlgmda) in order to correctly render mathematical formulas.)
 
 ### Formulation of the model.
 The goal of NMF is to find a good approximation of a nonnegative matrix *X*, that can be decomposed as the product of two nonnegative matrices $W$ and $H$: $X\approx WH,W\geq 0,H\geq 0$. In some application of the NMF problem, $W$ is called *atoms* and $H$ is called *activations*, terms that will be kept in the following to refer these two factors. Moreover, the more generic term *tensor* can be used instead of *matrix*.
