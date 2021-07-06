@@ -131,7 +131,7 @@ leaf_tk = wtf.LeafGamma(
 )
 ```
 
-The last node to create is the leaf representing atoms$\theta_{f\mid k}$. Since this tensor is subject to normalization constraint, the right class to use is `LeafDirichlet`, referring to the Dirichlet prior distribution. This distribution can be defined with the shape hyperparameters. Besides `index_id`, `tensor`, and `prior_shape` attributes, `LeafDirichlet` class needs a `norm_axis` attribute that specifies the axes on which the tensor has the normalization constraint. For a reason internal to wonterfact (related to the way numpy manages automatic broadcasting arrays), **it is necessary that normalization axes are the last axes of the tensor**, hence the convention to define indexes and tensors' shape backwards. We decide to randomly initialize the atoms. Beware that initialization must respect the normalization constraint.
+The last node to create is the leaf representing atoms $\theta_{f\mid k}$. Since this tensor is subject to normalization constraint, the right class to use is `LeafDirichlet`, referring to the Dirichlet prior distribution. This distribution can be defined with the shape hyperparameters. Besides `index_id`, `tensor`, and `prior_shape` attributes, `LeafDirichlet` class needs a `norm_axis` attribute that specifies the axes on which the tensor has the normalization constraint. For a reason internal to wonterfact (related to the way numpy manages automatic broadcasting arrays), **it is necessary that normalization axes are the last axes of the tensor**, hence the convention to define indexes and tensors' shape backwards. We decide to randomly initialize the atoms. Beware that initialization must respect the normalization constraint.
 
 ```python
 leaf_kf = wtf.LeafDirichlet(

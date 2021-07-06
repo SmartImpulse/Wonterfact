@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "wonterfact"
-version = "2.2.1"
+version = "3.0.0"
 description = "A powerful tool to design any tensor factorization model and estimate the corresponding parameters"
 authors = ["Smart-Impulse <contact@smart-impulse.com>", "Benoit Fuentes <bf@benoit-fuentes.fr>"]
 license = "GPL-3.0-or-later"
