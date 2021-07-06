@@ -8,3 +8,4 @@ htmlcov
 jupyter/*
 .vscode/*
 wonterfact/untracked/*
+!jupyter/skellam-snmf-experiments.ipynb
