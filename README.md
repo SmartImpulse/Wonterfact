@@ -20,7 +20,7 @@ This project has been initiated from 2015 to 2019 by Benoit Fuentes as a researc
 
 
 ## References
-For the moment, no article has been published yet to introduce this package and describe theoretical background on which it relies. Such an article should be published during the year 2021. Meanwhile, you can check on the [technical report](https://www.benoit-fuentes.fr/downloads/Wonterfact_technical_report.pdf) (beware this is work in progress) if you're interested in the theory.
+For the moment, no article has been published yet to introduce this package and describe theoretical background on which it relies. Such an article should be published during the year 2021. Meanwhile, you can check on the [technical report](https://github.com/SmartImpulse/Wonterfact/releases/download/v3.0.0/Wonterfact_technical_report.pdf) (beware this is work in progress) if you're interested in the theory.
 
 
 ## Installation
